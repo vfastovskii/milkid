@@ -658,15 +658,13 @@ def log_dataset_stats(tag: str,
     # Log summary of all splits for easier comparison
     LOGGER.info(f"[{tag}] Dataset split summary:")
     for split_name, (bags, _) in splits.items():
-        if not len(bags):  # empty val set when num_folds == 1
+        if not len(bags):  # empty val set (final model / no val_partition)
             continue
         LOGGER.info(f"[{tag}] - {split_name}: {len(bags)} bags")
 
     # If we have both validation and test sets, this indicates we're using CV with predefined split
-    if len(splits.get("val", [])) > 0 and len(splits.get("test", [])) > 0:
-        LOGGER.info(f"[{tag}] Predefined split verification: train bags were split into train/val for CV, test bags are heldout")
     for split, (bags, y) in splits.items():
-        if not len(bags):               # empty val set when num_folds == 1
+        if not len(bags):               # empty val set (final model / no val_partition)
             continue
 
         n_bags = len(bags)
@@ -877,7 +875,7 @@ def make_dataloader(ds, cfg: DataLoaderConfig, *, shuffle: bool) -> DataLoader:
     use_persistent = num_workers > 0 and (len(ds) > 100 or num_workers > 1)
     loader_timeout = 120 if num_workers > 0 else 0
 
-    generator_seed = int(getattr(cfg, "cv_seed", 42))
+    generator_seed = int(getattr(cfg, "seed", 42))
     generator = torch.Generator()
     generator.manual_seed(generator_seed)
 
@@ -976,7 +974,6 @@ def save_bags_to_disk(
     bag_ids: List[str],
     split: str,
     cache_dir: Path,
-    fold_idx: int = None,
     is_final_model: bool = False,
     cluster_ids: Optional[List[np.ndarray]] = None,
     cluster_config: Optional[Dict[str, object]] = None,
@@ -994,8 +991,6 @@ def save_bags_to_disk(
         Dataset split name (train, val, test)
     cache_dir : Path
         Directory to save bags to
-    fold_idx : int, optional
-        Index of the current fold, by default None
     is_final_model : bool, optional
         Whether this is for the final model, by default False
 
@@ -1007,19 +1002,13 @@ def save_bags_to_disk(
     if not cache_dir:
         raise ValueError("Cache directory not specified")
 
-    LOGGER.info(f"Saving bags to disk: split={split}, fold_idx={fold_idx}, is_final_model={is_final_model}")
+    LOGGER.info(f"Saving bags to disk: split={split}, is_final_model={is_final_model}")
 
-    # Create split directory
+    # Create split directory: final model caches under "final/", else at the root.
     if is_final_model:
-        # For final model, create a "final" directory for all splits (train/val/test)
         split_dir = cache_dir / "final" / split
         LOGGER.info(f"Creating directory for final model {split} data: {split_dir}")
-    elif fold_idx is not None and split in ["train", "val"]:
-        # For train and val splits, create a folder for each fold
-        split_dir = cache_dir / f"fold_{fold_idx}" / split
-        LOGGER.info(f"Creating directory for fold {fold_idx} {split} data: {split_dir}")
     else:
-        # Default directory for non-final runs
         split_dir = cache_dir / split
         LOGGER.info(f"Creating directory for {split} data: {split_dir}")
 

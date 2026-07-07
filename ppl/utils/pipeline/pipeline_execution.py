@@ -4,7 +4,7 @@ import pprint
 import traceback
 
 from ppl.utils.modelling_configs.pipeline_config import PipelineConfig
-from ppl.utils.model_trainer.cross_validator import CrossValidator
+from ppl.utils.model_trainer.split_trainer import SplitTrainer
 from ppl.utils.model_trainer.model_evaluator import ModelEvaluator
 
 # Global logging
@@ -13,22 +13,19 @@ LOGGER.setLevel(logging.INFO)
 
 def execute_pipeline(
     cfg: PipelineConfig,
-    num_folds: int,
-    cross_validator: CrossValidator,
+    split_trainer: SplitTrainer,
     model_evaluator: ModelEvaluator
 ) -> None:
-    """Execute the pipeline with cross-validation and final evaluation.
+    """Train on the predefined split, then optionally run final evaluation.
 
     Parameters
     ----------
     cfg : PipelineConfig
         Configuration object for the pipeline
-    num_folds : int
-        Number of cross-validation folds
-    cross_validator : CrossValidator
-        Cross-validation component
+    split_trainer : SplitTrainer
+        Stage 1 train/validation/test component
     model_evaluator : ModelEvaluator
-        Model evaluation component
+        Stage 2 final-model evaluation component
 
     Raises
     ------
@@ -41,20 +38,16 @@ def execute_pipeline(
         # Log experiment configuration
         LOGGER.info("[EXP CFG] Experiment configuration:\n%s", pprint.pformat(cfg))
 
-        # Stage 1: always perform a train/validation run (CV if num_folds>1, single split otherwise)
-        if num_folds >= 1:
-            if num_folds == 1:
-                LOGGER.info("Running Stage 1: train/validation on predefined/partitioned validation split")
-            else:
-                LOGGER.info(f"Running {num_folds}-fold cross-validation")
-            try:
-                cross_validator.run_cross_validation()
-                LOGGER.info("Stage 1 completed successfully")
-            except Exception as e:
-                LOGGER.error(f"Stage 1 failed: {str(e)}")
-                LOGGER.debug(f"Stage 1 error details: {traceback.format_exc()}")
-                # Preserve the original exception
-                raise
+        # Stage 1: train on split=0, validate on split=1, test the best checkpoint
+        LOGGER.info("Running Stage 1: train/validation on the predefined split")
+        try:
+            split_trainer.run()
+            LOGGER.info("Stage 1 completed successfully")
+        except Exception as e:
+            LOGGER.error(f"Stage 1 failed: {str(e)}")
+            LOGGER.debug(f"Stage 1 error details: {traceback.format_exc()}")
+            # Preserve the original exception
+            raise
 
         # Run final evaluation (Stage 2) only if enabled
         try:

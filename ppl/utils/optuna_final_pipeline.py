@@ -492,8 +492,7 @@ def _run_phase3_confirmation(
         config = deepcopy(runtime_base_cfg)
         _apply_overrides(config, combined_overrides)
         confirmation_overrides = {
-            "data.cv_seed": seed,
-            "data.random_state": seed,
+            "data.seed": seed,
             "trainer.experiment_name": _confirmation_experiment_name(
                 runtime_base_cfg,
                 run_index,

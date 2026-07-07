@@ -23,10 +23,10 @@ class DataLoaderConfig:
     series_col: Optional[str] = None
 
     # splits
-    predefined_split: bool = False  # look for the column [split_col]
+    predefined_split: bool = True  # use the [split_col] column: 0=train, 1=val, 2=test
     test_size: float = 0.1  # only used when predefined_split=False
-    random_state: int = 42
     n_strat_bins: int = 5
+    seed: int = 42  # single RNG seed for splits and dataloaders
 
     # loader hyper‑parameters
     batch_size: int = 1  # variable‑length bags, stick to bs=1
@@ -50,7 +50,5 @@ class DataLoaderConfig:
     on_demand_loading: bool = False  # load bags from disk when needed
     experiment_name: Optional[str] = None  # experiment name for saving splits and models
 
-    num_folds: int = 3  # 1 -> no CV
-    fold_idx: int = 0  # which fold to hold out as val
-    cv_seed: int = 42  # shuffle seed
-    val_partition: bool = True  # whether to use validation split when num_folds=1
+    # when predefined_split=False, carve a stratified validation set out of train
+    val_partition: bool = True

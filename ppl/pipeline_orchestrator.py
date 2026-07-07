@@ -21,7 +21,7 @@ _SAFE_CLEANUP_ATTRS: tuple[str, ...] = (
     "component_factory",
     "config_manager",
     "model_trainer",
-    "model_cross_validator",
+    "split_trainer",
     "model_evaluator",
 )
 
@@ -58,11 +58,10 @@ class PipelineOrchestrator:
             self.resource_manager,
             self.component_factory,
             self.task,
-            self.num_folds,
         ) = initialize_pipeline_components(self.config)
 
         self.model_trainer = self.component_factory.model_trainer
-        self.model_cross_validator = self.component_factory.model_cross_validator
+        self.split_trainer = self.component_factory.split_trainer
         self.model_evaluator = self.component_factory.model_evaluator
 
     # Resource management
@@ -95,15 +94,14 @@ class PipelineOrchestrator:
 
     # Public API
     def run(self) -> None:
-        """Run k-fold CV (if configured) followed by a final evaluation."""
+        """Train on the predefined split, then optionally run final evaluation."""
         if not self._components_ready:
             raise RuntimeError("Attempted to run pipeline before it was ready.")
 
         try:
             execute_pipeline(
                 self.config,
-                self.num_folds,
-                self.model_cross_validator,
+                self.split_trainer,
                 self.model_evaluator,
             )
         finally:

@@ -12,7 +12,7 @@ from typing import Any, Dict
 from ppl.utils.mil_data_handling.data_loader import DataLoaderConfig
 from ppl.utils.modelling_configs.model_builder_config import ModelBuilderConfig
 from ppl.utils.modelling_configs.trainer_config import TrainerConfig, TrainerBuilder
-from ppl.utils.model_trainer.cross_validator import CrossValidator
+from ppl.utils.model_trainer.split_trainer import SplitTrainer
 from ppl.utils.model_trainer.model_evaluator import ModelEvaluator
 from ppl.utils.model_trainer.model_trainer import ModelTrainer
 
@@ -25,8 +25,8 @@ class PipelineComponentFactory:
 
     This class is responsible for:
     - Creating and initializing the ModelTrainer
-    - Creating and initializing the CrossValidator
-    - Creating and initializing the ModelEvaluator
+    - Creating and initializing the SplitTrainer (Stage 1)
+    - Creating and initializing the ModelEvaluator (Stage 2)
     """
 
     def __init__(
@@ -36,7 +36,7 @@ class PipelineComponentFactory:
         trainer_cfg: TrainerConfig,
         log_save_dir: Path,
         task: str,
-        cv_seed: int,
+        seed: int,
     ) -> None:
         """Initialize the component factory.
 
@@ -52,8 +52,8 @@ class PipelineComponentFactory:
             Directory for saving logs
         task : str
             Task type (e.g., 'classification', 'regression')
-        cv_seed : int
-            Seed for cross-validation
+        seed : int
+            Global RNG seed
 
         Raises
         ------
@@ -65,17 +65,17 @@ class PipelineComponentFactory:
         self.trainer_cfg = trainer_cfg
         self.log_save_dir = log_save_dir
         self.task = task
-        self.cv_seed = cv_seed
+        self.seed = seed
 
         # Components
         self.model_trainer = None
-        self.model_cross_validator = None
+        self.split_trainer = None
         self.model_evaluator = None
 
     def create_ppl_components(self) -> None:
         """Create all pipeline components.
 
-        This method initializes the ModelTrainer, CrossValidator, and ModelEvaluator.
+        This method initializes the ModelTrainer, SplitTrainer, and ModelEvaluator.
 
         Raises
         ------
@@ -88,7 +88,7 @@ class PipelineComponentFactory:
 
             # Initialize components
             self._create_model_trainer()
-            self._create_cross_validator(shared_config)
+            self._create_split_trainer(shared_config)
             self._create_model_evaluator(shared_config)
         except Exception as e:
             LOGGER.error(f"Failed to create components: {str(e)}")
@@ -126,7 +126,7 @@ class PipelineComponentFactory:
                 model_cfg=self.model_cfg,
                 trainer_cfg=self.trainer_cfg,
                 log_save_dir=self.log_save_dir,
-                cv_seed=self.cv_seed,
+                seed=self.seed,
                 task=self.task,
                 experiment_name=shared_config.get('experiment_name'),
             )
@@ -136,8 +136,8 @@ class PipelineComponentFactory:
             LOGGER.debug(f"{self.model_trainer.__class__.__name__}r initialization error details: {traceback.format_exc()}")
             raise ValueError(f"{self.model_trainer.__class__.__name__} initialization failed: {str(e)}") from e
 
-    def _create_cross_validator(self, shared_config: Dict[str, Any]) -> None:
-        """Initialize the cross-validator.
+    def _create_split_trainer(self, shared_config: Dict[str, Any]) -> None:
+        """Initialize the single-split trainer (Stage 1).
 
         Parameters
         ----------
@@ -147,19 +147,19 @@ class PipelineComponentFactory:
         Raises
         ------
         ValueError
-            If cross-validator initialization fails
+            If split-trainer initialization fails
         """
         try:
-            self.model_cross_validator = CrossValidator(
+            self.split_trainer = SplitTrainer(
                 data_cfg=self.data_cfg,
                 model_trainer=self.model_trainer,
                 **shared_config
             )
-            LOGGER.info(f" {self.model_cross_validator.__class__.__name__} initialized")
+            LOGGER.info(f"{self.split_trainer.__class__.__name__} initialized")
         except Exception as e:
-            LOGGER.error(f"Failed to initialize {self.model_cross_validator.__class__.__name__}: {str(e)}")
-            LOGGER.debug(f"{self.model_cross_validator.__class__.__name__} initialization error details: {traceback.format_exc()}")
-            raise ValueError(f"{self.model_cross_validator.__class__.__name__} initialization failed: {str(e)}") from e
+            LOGGER.error(f"Failed to initialize SplitTrainer: {str(e)}")
+            LOGGER.debug(f"SplitTrainer initialization error details: {traceback.format_exc()}")
+            raise ValueError(f"SplitTrainer initialization failed: {str(e)}") from e
 
     def _create_model_evaluator(self, shared_config: Dict[str, Any]) -> None:
         """Initialize the model evaluator.

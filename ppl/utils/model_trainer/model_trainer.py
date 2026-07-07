@@ -80,8 +80,8 @@ class ModelTrainer:
         Configuration for model training
     log_save_dir : Path
         Directory to save logs
-    cv_seed : int
-        Seed for cross-validation
+    seed : int
+        Global RNG seed
     task : str
         Task type (regression or classification)
     """
@@ -91,14 +91,14 @@ class ModelTrainer:
         model_cfg: ModelBuilderConfig,
         trainer_cfg: TrainerConfig,
         log_save_dir: Path,
-        cv_seed: int,
+        seed: int,
         task: str,
         experiment_name: str = None,
     ) -> None:
         self.model_cfg = model_cfg
         self.trainer_cfg = trainer_cfg
         self.log_save_dir = log_save_dir
-        self.cv_seed = cv_seed
+        self.seed = seed
         self.task = task
         self.max_epochs = trainer_cfg.max_epochs
         self.device = trainer_cfg.device
@@ -354,13 +354,8 @@ class ModelTrainer:
             LOGGER.debug(traceback.format_exc())
             return None
 
-    def callbacks(self, fold_idx: int = 0) -> Sequence[pl.callbacks.Callback]:
+    def callbacks(self) -> Sequence[pl.callbacks.Callback]:
         """Create a list of callbacks for the PyTorch Lightning Trainer.
-
-        Parameters
-        ----------
-        fold_idx : int, optional
-            Index of the current fold, by default 0
 
         Returns
         -------
@@ -373,7 +368,7 @@ class ModelTrainer:
             - ModelSummary: Display a summary of the model architecture
             - EpochAttentionWeightLogger: Log attention weights per epoch for training and validation bags
         """
-        run_suffix = f"seed{self.cv_seed}_fold{fold_idx}"
+        run_suffix = f"seed{self.seed}"
         iteration_label = getattr(self, "_training_iteration_label", "")
         if iteration_label:
             run_suffix = f"{run_suffix}_{iteration_label}"
@@ -603,7 +598,6 @@ class ModelTrainer:
         self,
         *,
         dm: MILDataModule,
-        fold_idx: int,
         source_model: pl.LightningModule,
         source_metrics: Dict[str, float],
     ) -> Dict[str, float]:
@@ -625,13 +619,9 @@ class ModelTrainer:
         from ppl.utils.pipeline.results_directory import create_results_directory
 
         if self.experiment_name:
-            save_dir = (
-                create_results_directory(self.experiment_name)
-                / "validation"
-                / f"fold_{fold_idx}"
-            )
+            save_dir = create_results_directory(self.experiment_name) / "validation"
         else:
-            save_dir = self.log_save_dir / "validation" / f"fold_{fold_idx}"
+            save_dir = self.log_save_dir / "validation"
 
         conf_ids = self._extract_conformer_ids()
         expected_val_bag_ids = (
@@ -680,7 +670,7 @@ class ModelTrainer:
         log_metrics(
             result.summary,
             stage="validation_instance_importance",
-            prefix=f"fold{fold_idx}",
+            prefix="val",
         )
 
         metrics = dict(source_metrics)
@@ -692,7 +682,7 @@ class ModelTrainer:
         )
         return metrics
 
-    def fit_validate(self, dm: MILDataModule, logger: SafeMLFlowLogger, fold_idx: int = 0) -> Dict[str, float]:
+    def fit_validate(self, dm: MILDataModule, logger: SafeMLFlowLogger) -> Dict[str, float]:
         """Fit the model on training data and validate on validation data.
 
         Parameters
@@ -701,8 +691,6 @@ class ModelTrainer:
             Data module containing the data loaders
         logger : SafeMLFlowLogger
             MLFlow logger to use
-        fold_idx : int, optional
-            Index of the current fold, by default 0
 
         Returns
         -------
@@ -752,14 +740,13 @@ class ModelTrainer:
                 setattr(model, "_instance_importance_epoch", best_epoch)
             # Fallback to model in memory if best model loading fails
             val_metrics = trainer.validate(model, datamodule=dm, verbose=False)[0]
-        log_metrics(val_metrics, stage="val", prefix=f"fold{fold_idx}")
+        log_metrics(val_metrics, stage="val", prefix="val")
 
         plot_model_candidate = best_model if best_model is not None else model
         if best_epoch is not None:
             setattr(plot_model_candidate, "_instance_importance_epoch", best_epoch)
         val_metrics = self._maybe_export_validation_instance_importance(
             dm=dm,
-            fold_idx=fold_idx,
             source_model=plot_model_candidate,
             source_metrics=dict(val_metrics),
         )
@@ -1050,9 +1037,7 @@ class ModelTrainer:
                 test_dl = None
             has_test = test_dl is not None and len(test_dl) > 0 if test_dl is not None else False
 
-            # Only run Stage 1 test in non-CV scenario (num_folds == 1)
-            num_folds = int(getattr(dm_cfg, 'num_folds', 1)) if dm_cfg is not None else 1
-            if do_stage1_test and num_folds == 1 and predefined and has_split_col and has_test:
+            if do_stage1_test and predefined and has_split_col and has_test:
                 LOGGER.info("[MODEL][Stage 1] Evaluating best Stage 1 model on predefined test split (split==2)")
                 # Use best model if available; otherwise, fallback to in-memory model
                 stage1_best_model = self.get_best_model()
