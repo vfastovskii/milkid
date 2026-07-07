@@ -52,7 +52,6 @@ class ModelBuilder:
             cfg.aggregator_type,
             cfg.predictor_type,
         )
-        ModelFactory.log_memory_usage("ModelBuilder_init")
 
     def build(self) -> pl.LightningModule:
         """Build the model and return a Lightning module ready for training.

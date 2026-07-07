@@ -682,6 +682,87 @@ class ModelTrainer:
         )
         return metrics
 
+    @staticmethod
+    def _unpack_batch(batch):
+        """Return (x, y, bag_ids, key_padding_mask, cluster_ids, series_labels)."""
+        if isinstance(batch, dict):
+            bags = batch.get("bags", batch.get("x"))
+            y = batch.get("labels", batch.get("y"))
+            bag_ids = batch.get("bag_ids", batch.get("ids"))
+            key_padding_mask = batch.get("padding_mask")
+            cluster_ids = batch.get("cluster_ids")
+            series_labels = batch.get("series_labels")
+        else:
+            bags, y, bag_ids = batch[0], batch[1], batch[2]
+            key_padding_mask = batch[3] if len(batch) > 3 else None
+            cluster_ids = batch[4] if len(batch) > 4 else None
+            series_labels = batch[5] if len(batch) > 5 else None
+        x = bags[0] if isinstance(bags, list) else bags
+        return x, y, bag_ids, key_padding_mask, cluster_ids, series_labels
+
+    def _predict_rows(
+        self,
+        model: pl.LightningModule,
+        dataloader,
+        *,
+        stage: Optional[str] = None,
+        eval_epoch: Optional[int] = None,
+        use_series_labels: bool = False,
+    ) -> List[tuple]:
+        """Run inference over a dataloader and collect (bag_id, true, pred) rows."""
+        import numpy as np
+
+        rows: List[tuple] = []
+        if dataloader is None:
+            return rows
+
+        model.eval()
+        device = next(model.parameters()).device
+        with torch.no_grad():
+            for batch in dataloader:
+                x, y, bag_ids, key_padding_mask, cluster_ids, series_labels = (
+                    self._unpack_batch(batch)
+                )
+                x = x.to(device)
+                if key_padding_mask is not None:
+                    try:
+                        key_padding_mask = key_padding_mask.to(x.device)
+                    except Exception:
+                        key_padding_mask = None
+                if cluster_ids is not None:
+                    try:
+                        cluster_ids = cluster_ids.to(x.device)
+                    except Exception:
+                        cluster_ids = None
+
+                core_kwargs = {}
+                if key_padding_mask is not None:
+                    core_kwargs["key_padding_mask"] = key_padding_mask
+                if cluster_ids is not None:
+                    core_kwargs["cluster_ids"] = cluster_ids
+                if use_series_labels and series_labels is not None:
+                    core_kwargs["series_labels"] = series_labels
+                if stage is not None:
+                    core_kwargs["stage"] = stage
+                if eval_epoch is not None:
+                    core_kwargs["current_epoch"] = int(eval_epoch)
+
+                try:
+                    logit, _ = model.core(x, **core_kwargs)
+                except TypeError:
+                    logit, _ = model.core(x)
+
+                y_pred = (
+                    torch.sigmoid(logit)
+                    if self.task.lower() == "classification"
+                    else logit
+                )
+                y_np = np.asarray(y.cpu().numpy()).reshape(-1)
+                y_pred_np = np.asarray(y_pred.detach().cpu().numpy()).reshape(-1)
+                for i, mol_id in enumerate(bag_ids):
+                    rows.append((str(mol_id), float(y_np[i]), float(y_pred_np[i])))
+        return rows
+
     def fit_validate(self, dm: MILDataModule, logger: SafeMLFlowLogger) -> Dict[str, float]:
         """Fit the model on training data and validate on validation data.
 
@@ -772,80 +853,11 @@ class ModelTrainer:
                     train_dl = dm.train_dataloader()
                 val_dl = dm.val_dataloader()
 
-                # Helper to collect rows
-                def _collect_rows(dl, want_true: bool):
-                    rows = []
-                    if dl is None:
-                        return rows
-                    plot_model.eval()
-                    device = next(plot_model.parameters()).device
-                    eval_epoch = getattr(
-                        plot_model,
-                        "_evaluation_epoch_override",
-                        getattr(plot_model, "current_epoch", None),
-                    )
-                    with torch.no_grad():
-                        for batch in dl:
-                            key_padding_mask = None
-                            cluster_ids = None
-                            series_labels = None
-                            if isinstance(batch, dict):
-                                bags = batch.get('bags') if 'bags' in batch else batch.get('x')
-                                y = batch.get('labels') if 'labels' in batch else batch.get('y')
-                                batch_bag_ids = batch.get('bag_ids') if 'bag_ids' in batch else batch.get('ids')
-                                key_padding_mask = batch.get('padding_mask')
-                                cluster_ids = batch.get('cluster_ids')
-                                series_labels = batch.get('series_labels')
-                            else:
-                                bags = batch[0]
-                                y = batch[1]
-                                batch_bag_ids = batch[2]
-                                key_padding_mask = batch[3] if len(batch) > 3 else None
-                                cluster_ids = batch[4] if len(batch) > 4 else None
-                                series_labels = batch[5] if len(batch) > 5 else None
-                            x = bags[0] if isinstance(bags, list) else bags
-                            x = x.to(device)
-                            if key_padding_mask is not None:
-                                try:
-                                    key_padding_mask = key_padding_mask.to(x.device)
-                                except Exception:
-                                    pass
-                            if cluster_ids is not None:
-                                try:
-                                    cluster_ids = cluster_ids.to(x.device)
-                                except Exception:
-                                    cluster_ids = None
-                            try:
-                                core_kwargs = {}
-                                if key_padding_mask is not None:
-                                    core_kwargs["key_padding_mask"] = key_padding_mask
-                                if cluster_ids is not None:
-                                    core_kwargs["cluster_ids"] = cluster_ids
-                                if series_labels is not None:
-                                    core_kwargs["series_labels"] = series_labels
-                                core_kwargs["stage"] = "val"
-                                if eval_epoch is not None:
-                                    core_kwargs["current_epoch"] = int(eval_epoch)
-                                logit, _ = plot_model.core(x, **core_kwargs)
-                            except TypeError:
-                                logit, _ = plot_model.core(x)
-                            y_pred = torch.sigmoid(logit) if self.task.lower() == "classification" else logit
-                            y_np = y.cpu().numpy()
-                            y_pred_np = y_pred.detach().cpu().numpy()
-                            if y_np.ndim > 1:
-                                y_np = y_np.flatten()
-                            elif y_np.ndim == 0:
-                                y_np = np.array([y_np])
-                            if y_pred_np.ndim > 1:
-                                y_pred_np = y_pred_np.flatten()
-                            elif y_pred_np.ndim == 0:
-                                y_pred_np = np.array([y_pred_np])
-                            for i, mol_id in enumerate(batch_bag_ids):
-                                if want_true:
-                                    rows.append((str(mol_id), float(y_np[i]), float(y_pred_np[i])))
-                                else:
-                                    rows.append((str(mol_id), float(y_pred_np[i])))
-                    return rows
+                eval_epoch = getattr(
+                    plot_model,
+                    "_evaluation_epoch_override",
+                    getattr(plot_model, "current_epoch", None),
+                )
 
                 def _compute_regression_metrics_from_rows(rows, prefix: str):
                     if not rows or self.task.lower() != "regression":
@@ -895,7 +907,10 @@ class ModelTrainer:
                 # Write train_fit.csv
                 train_rows = []
                 try:
-                    train_rows = _collect_rows(train_dl, want_true=True)
+                    train_rows = self._predict_rows(
+                        plot_model, train_dl, stage="val",
+                        eval_epoch=eval_epoch, use_series_labels=True,
+                    )
                     if train_rows:
                         train_df = pd.DataFrame(train_rows, columns=["mol_id", "true", "predicted"])
                         # Compute absolute error and round all numeric values to 2 decimals
@@ -911,7 +926,10 @@ class ModelTrainer:
 
                 # Write val.csv
                 try:
-                    val_rows = _collect_rows(val_dl, want_true=True)
+                    val_rows = self._predict_rows(
+                        plot_model, val_dl, stage="val",
+                        eval_epoch=eval_epoch, use_series_labels=True,
+                    )
                     if val_rows:
                         val_df = pd.DataFrame(val_rows, columns=["mol_id", "true", "predicted"])
                         # Round all numeric values to 2 decimals
@@ -1048,59 +1066,7 @@ class ModelTrainer:
                         import numpy as np
                         import pandas as pd
                         results_dir = create_results_directory(self.experiment_name)
-                        test_rows = []
-                        test_model.eval()
-                        device = next(test_model.parameters()).device
-                        with torch.no_grad():
-                            for batch in test_dl:
-                                key_padding_mask = None
-                                cluster_ids = None
-                                if isinstance(batch, dict):
-                                    bags = batch.get('bags') if 'bags' in batch else batch.get('x')
-                                    y = batch.get('labels') if 'labels' in batch else batch.get('y')
-                                    batch_bag_ids = batch.get('bag_ids') if 'bag_ids' in batch else batch.get('ids')
-                                    key_padding_mask = batch.get('padding_mask')
-                                    cluster_ids = batch.get('cluster_ids')
-                                else:
-                                    bags = batch[0]
-                                    y = batch[1]
-                                    batch_bag_ids = batch[2]
-                                    key_padding_mask = batch[3] if len(batch) > 3 else None
-                                    cluster_ids = batch[4] if len(batch) > 4 else None
-                                x = bags[0] if isinstance(bags, list) else bags
-                                x = x.to(device)
-                                if key_padding_mask is not None:
-                                    try:
-                                        key_padding_mask = key_padding_mask.to(x.device)
-                                    except Exception:
-                                        pass
-                                if cluster_ids is not None:
-                                    try:
-                                        cluster_ids = cluster_ids.to(x.device)
-                                    except Exception:
-                                        cluster_ids = None
-                                try:
-                                    core_kwargs = {}
-                                    if key_padding_mask is not None:
-                                        core_kwargs["key_padding_mask"] = key_padding_mask
-                                    if cluster_ids is not None:
-                                        core_kwargs["cluster_ids"] = cluster_ids
-                                    logit, _ = test_model.core(x, **core_kwargs)
-                                except TypeError:
-                                    logit, _ = test_model.core(x)
-                                y_pred = torch.sigmoid(logit) if self.task.lower() == "classification" else logit
-                                y_np = y.cpu().numpy()
-                                y_pred_np = y_pred.detach().cpu().numpy()
-                                if y_np.ndim > 1:
-                                    y_np = y_np.flatten()
-                                elif y_np.ndim == 0:
-                                    y_np = np.array([y_np])
-                                if y_pred_np.ndim > 1:
-                                    y_pred_np = y_pred_np.flatten()
-                                elif y_pred_np.ndim == 0:
-                                    y_pred_np = np.array([y_pred_np])
-                                for i, mol_id in enumerate(batch_bag_ids):
-                                    test_rows.append((str(mol_id), float(y_np[i]), float(y_pred_np[i])))
+                        test_rows = self._predict_rows(test_model, test_dl)
                         if test_rows:
                             test_df = pd.DataFrame(test_rows, columns=["mol_id", "true", "predicted"])
                             # Round predictions and absolute error to 2 decimals for user-facing CSV
