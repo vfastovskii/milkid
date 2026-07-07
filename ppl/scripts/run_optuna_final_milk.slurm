@@ -80,8 +80,8 @@ PKGDIR="${PKGDIR:-${REPO_DIR}/ppl}"
 DATA_DIR="${DATA_DIR:-${PKGDIR}/data}"
 DATA_CSV="${DATA_CSV:-${DATA_DIR}/bace809_3d_fp_5fp_200c_05prune_6kcal_no_Hs_june_concated_splited.csv}"
 
-BASE_CONFIG="${BASE_CONFIG:-${PKGDIR}/utils/experiment_configs/run_config.yaml}"
-SEARCH_SPACE="${SEARCH_SPACE:-${PKGDIR}/utils/experiment_configs/optuna_search_space_bace809_cluster_hier_mha.yaml}"
+BASE_CONFIG="${BASE_CONFIG:-${PKGDIR}/config/experiment_configs/run_config.yaml}"
+SEARCH_SPACE="${SEARCH_SPACE:-${PKGDIR}/config/experiment_configs/optuna_search_space_bace809_cluster_hier_mha.yaml}"
 
 # -------------------- run knobs --------------------
 STUDY_NAME="${STUDY_NAME:-bace809_cluster_hier_mha_optuna}"
@@ -185,9 +185,9 @@ cd "$WORKDIR"
 python3 -c "import ppl; print('[INFO] ppl import OK from', ppl.__file__)"
 
 CMD=(
-  python3 -m ppl.utils.optuna_final_pipeline
-  --search-space "$WORKDIR/ppl/utils/experiment_configs/optuna_search_space_bace809_cluster_hier_mha.yaml"
-  --base-config "$WORKDIR/ppl/utils/experiment_configs/run_config.yaml"
+  python3 -m ppl.hpo.optuna_final_pipeline
+  --search-space "$WORKDIR/ppl/config/experiment_configs/optuna_search_space_bace809_cluster_hier_mha.yaml"
+  --base-config "$WORKDIR/ppl/config/experiment_configs/run_config.yaml"
   --data-csv "$DATA_CSV_LOCAL"
   --output-dir "$STUDY_DIR"
   --trial-root "$STUDY_DIR/trials"

@@ -1,0 +1,79 @@
+"""Pipeline execution utils for the command-line interface."""
+import argparse
+import logging
+from pathlib import Path
+
+from ppl.pipeline.orchestrator import PipelineOrchestrator
+from ppl.pipeline.builder import build_pipeline_from_config, list_available_use_cases
+
+from ppl.cli.pipeline_setup_utils import DEFAULT_SEED, configure_logging
+from ppl.utils.reproducibility import (
+    check_determinism,
+    set_deterministic,
+)
+
+
+def configure_pipeline(config_path: Path) -> PipelineOrchestrator:
+    """Configure and build the pipeline from the YAML config file.
+
+    Parameters
+    ----------
+    config_path : Path
+        Path to the YAML configuration file
+
+    Returns
+    -------
+    PipelineOrchestrator
+        Configured pipeline runner instance
+
+    Raises
+    ------
+    FileNotFoundError
+        If the config file does not exist
+    Exception
+        If pipeline configuration fails
+    """
+    try:
+        if not config_path.is_file():
+            raise FileNotFoundError(f"Config file not found: {config_path}")
+        logging.info("Loading config: %s", config_path)
+        return build_pipeline_from_config(yaml_path=config_path)
+    except Exception as e:
+        logging.error("Failed to configure pipeline: %s", e)
+        raise
+
+def execute_pipeline(args: argparse.Namespace) -> None:
+    """Execute the core pipeline logic.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Command-line arguments
+
+    Raises
+    ------
+    Exception
+        If pipeline execution fails
+    """
+    try:
+        configure_logging(args.log_level)
+        
+        # Handle --list-use-cases option
+        if hasattr(args, 'list_use_cases') and args.list_use_cases:
+            use_cases = list_available_use_cases()
+            print("Available use cases:")
+            for use_case in use_cases:
+                print(f"  - {use_case}")
+            return
+        
+        set_deterministic(seed=DEFAULT_SEED)
+        check_determinism()
+
+        # Configure pipeline from config file
+        pipeline = configure_pipeline(config_path=args.ppl_cfg_path)
+            
+        logging.info("Running pipeline ...")
+        pipeline.run()
+    except Exception as e:
+        logging.error("Pipeline execution failed: %s", e)
+        raise

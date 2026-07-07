@@ -59,7 +59,7 @@ dev = [
 ]
 
 [project.scripts]
-milk = "ppl.cli_entry_point:main"
+milk = "ppl.cli.entry_point:main"
 
 [tool.poetry]
 packages = [{ include = "ppl" }]
