@@ -1,0 +1,85 @@
+[project]
+name = "milk"
+version = "0.1.0"
+description = "MILK (Multi-Instance Learning Kit) is a modular and extensible pipeline for multi-instance learning (MIL) tasks."
+authors = [
+    { name = "Fastovskii V.", email = "vasilii.fastovskii@etu.unistra.fr" },
+    { name = "Marcou G.", email = "g.marcou@unistra.fr" },
+    { name = "Bianciotto M.", email = "marc.bianciotto@sanofi.com" },
+    { name = "Grebner C.", email = "christoph.grebner@sanofi.com" }
+]
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+
+dependencies = [
+    "torch>=2.7.0,<3.0.0",
+    "lightning>=2.5.1.post0,<2.6.0",
+    "torchmetrics>=1.7.1,<2.0.0",
+    "scikit-learn>=1.6.1,<2.0.0",
+    "scipy>=1.15.2,<2.0.0",
+    "pandas>=2.2.3,<3.0.0",
+    "numpy (==2.3.1)",
+    "matplotlib>=3.10.3,<4.0.0",
+    "pyyaml>=6.0.2,<7.0.0",
+    "tqdm>=4.67.1,<5.0.0",
+    "requests>=2.32.3,<3.0.0",
+    "typing-extensions>=4.13.2,<5.0.0",
+    "python-dateutil>=2.9.0,<3.0.0",
+    "networkx>=3.4.2,<4.0.0",
+    "sympy>=1.14,<2.0.0",
+    "joblib>=1.5.0,<2.0.0",
+    "packaging>=24.2,<25.0",
+    "mlflow>=2.22.0,<3.0.0",
+    "hydra-core>=1.3.2,<2.0.0",
+    "optuna>=3.6.1,<4.0.0",
+    "rich[all]>=13.7.1,<14.0.0",
+    "tensorboard>=2.16.2,<3.0.0",
+    "torchvision (>=0.22.0,<0.23.0)",
+    "pylint (>=3.3.7,<4.0.0)",
+    "graphviz (>=0.20.3,<0.21.0)",
+    "psutil (>=7.0.0,<8.0.0)",
+    "sentry-sdk (>=2.32.0,<3.0.0)",
+    "notebook (>=7.4.3,<8.0.0)",
+    "seaborn (>=0.13.2,<0.14.0)",
+    "statsmodels (>=0.14.0,<0.15.0)",
+    "plotly (>=6.3.0,<7.0.0)",
+    "rdkit (>=2025.9.1,<2026.0.0)",
+    "kaleido (>=1.2.0,<2.0.0)",
+    "openpyxl (>=3.1.5,<4.0.0)",
+    "lightgbm (>=4.6.0,<5.0.0)"
+]
+
+
+[project.optional-dependencies]
+dev = [
+    "black>=24.4,<25.0",
+    "ruff>=0.4,<1.0",
+    "pytest>=8.2,<9.0",
+    "ipykernel>=6.29,<7.0"
+]
+
+[project.scripts]
+milk = "ppl.cli_entry_point:main"
+
+[tool.poetry]
+packages = [{ include = "ppl" }]
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.12.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+# Configure rules (you can add/remove as needed)
+select = ["E", "F", "I"]  # E=pycodestyle, F=pyflakes, I=isort
+ignore = ["E501"]         # Ignore long lines, for example
+
+# Exclude folders
+exclude = ["venv", ".venv", "__pycache__"]
+
+# Set line length and target version
+line-length = 88
+target-version = "py311"
+

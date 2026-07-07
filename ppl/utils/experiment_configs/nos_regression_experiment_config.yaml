@@ -1,0 +1,192 @@
+# Task
+task: regression
+use_case: confs
+
+data:
+  csv_path: ppl/data/bace809_3d_fp_5fp_200c_05prune_6kcal_no_Hs_june_concated_splited.csv
+  task: regression
+  descriptor_cols: null
+
+  # column names
+  bag_id_col: mol_id
+  inst_id_col: conf_id
+  endpoint_value_col: endpoint
+  energy_col: Energy
+  pdb_id_col: pdb_id
+  smiles_col: smiles
+  split_col: split
+  series_col: Series
+
+  # split strategy
+  predefined_split: true
+  test_size: 0.2
+  random_state: 42
+  n_strat_bins: 5
+
+  # dataloader params
+  batch_size: 16
+  pin_memory: true
+  balance_train_batches_by_series: true
+
+  # per-molecule conformer clusters in scaled original descriptor space
+  cluster_instances: true
+  cluster_selection_method: silhouette
+  cluster_max_clusters: 6
+  cluster_min_clusters: 1
+  cluster_min_silhouette: 0.08
+  cluster_distance_threshold: null
+  cluster_linkage: average
+  cluster_metric: euclidean
+
+  # cross-validation
+  num_folds: 1
+  fold_idx: 0
+  cv_seed: 42
+  val_partition: true  # Set to false to use all training data without validation split
+
+model:
+  template: bag_attention  # Specify which template to use
+  embedder_type: contextualized_mlp_embedder_v1
+  aggregator_type: cluster_hier_mha_v1
+  predictor_type: mlp_predictor_v3
+  task: regression
+  embedder_kwargs:
+    embed_dim: 512 # test9 paper 256
+    num_mlp_layers: 3
+    mlp_expansion: 2.0
+    dropout: 0.2
+    stochastic_depth: 0.03
+
+  self_attention_kwargs:
+    num_attn_layers: 1 # 1 for paper
+    num_heads: 2
+    attn_mlp_ratio: 1.0
+    attn_dropout: 0.0
+    attn_ffn_dropout: 0.15
+    attn_stochastic_depth: 0.02
+    attn_residual_scale_init: 0.005
+
+  aggregator_kwargs:
+    num_heads: 4
+    num_query_tokens: 1 # 1 for paper
+    dropout: 0.05
+    attn_dropout: 0.0
+    use_layer_norm: true
+    pool_from: inputs
+    pool_v_proj: false
+    pool_v_bias: false
+    use_temperature: true
+    temperature_init: 0.15
+    attn_mlp_ratio: 1.0
+    residual_scale_init: 0.003
+    bag_repr_source: weighted_sum
+    refine_top_k_clusters: 1
+    cluster_refinement_mode: soft
+    refine_mix: 0.7
+    refine_mix_learnable: false
+    external_query_gate_init: 0.15
+    cluster_loss_coeff: 0.02
+    cluster_compactness_weight: 0.75
+    cluster_separation_weight: 0.1
+    cluster_separation_max_sim: 0.5
+    eps: 1.0e-8
+
+  predictor_kwargs:
+    hidden_dim: 256
+    num_layers: 2
+    expansion: 2.0
+    dropout: 0.2
+    stochastic_depth: 0.08
+    head_dropout: 0.2
+    output_dim: 1
+
+  active_prototype_kwargs:
+    enabled: true
+    warmup_epochs: 1 # paper 6
+    query_start_epoch: 3 #paper10
+    query_ramp_epochs: 2 #paper 10
+    query_max_weight: 0.8 # paper0.5
+    min_active_prototypes: 16
+    active_threshold: 7.0
+    top_m_candidates: 3
+    candidate_selection: attention_ablation
+    ablation_candidate_pool: 8
+    ablation_attention_weight: 0.5
+    ablation_impact_weight: 0.5
+    ablation_positive_only: true
+    candidate_alpha_key: alpha
+    max_prototypes: 64
+    max_prototypes_per_series: 2
+    create_sim_threshold: 0.80
+    merge_sim_threshold: 0.90
+    ema_momentum: 0.03
+    min_count_to_keep: 3
+    query_top_m_prototypes: 8
+    query_temperature: 0.2
+    query_prefer_same_series: false
+    query_fallback_to_all_series: true
+    use_on_eval: true
+
+  optim:
+    lr: 0.0001
+    embedder_lr: 0.000025479848747509328
+    self_attention_lr: 0.00008037712553528748
+    aggregator_lr: 0.00013363992606528198
+    predictor_lr: 0.000009548040352097481
+    active_query_lr: 0.00007017884066318825
+    weight_decay: 0.002955782682076399
+    scheduler: plateau
+    lr_patience: 15 #paper 30
+    factor: 0.01
+    lr_t_max: 50
+    eta_min: 0.000005
+    embedder_lr_factor: 1.0  # Explicit LR factor for embedder (higher than default 0.1)
+    self_attention_lr_factor: 1.0  # Explicit LR factor for bag self-attention/contextualizer
+    aggregator_lr_factor: 1.0  # Explicit LR factor for aggregator
+    predictor_lr_factor: 1.0  # Explicit LR factor for predictor
+    active_query_lr_factor: 1.0  # Explicit LR factor for bioactive query builder
+    enable_gradient_tracking: false  # Disable gradient tracking
+
+trainer:
+  max_epochs: 100
+  min_epochs: 0
+  device: mps
+  precision: "32-true"
+  log_every_n_steps: 10  # Set to a lower value since we only have 37 training batches
+  log_save_dir: bace809_cluster_hier_mha_200c_2jul_bs16_test11_log #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_d_sc_fixlog
+  experiment_name: bace809_cluster_hier_mha_200c_2jul_bs16_test11 #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_double_scale_fix
+  run_name: null
+  tracking_uri: null
+  log_per_epoch: false
+  save_attention_artifacts: true
+  checkpoint_monitor: val_rmse
+  checkpoint_min_epoch: 30 #paper 30
+  checkpoint_after_attention_refinement: true
+  checkpoint_min_query_epochs: 20
+  overfit_gap_stop_enabled: false
+  overfit_gap_metric: rmse
+  overfit_gap_patience: 2
+  overfit_gap_min_delta: 0.005
+  overfit_gap_abs_threshold: 0.08
+  overfit_gap_rel_threshold: 0.15
+  overfit_gap_require_val_worse_than_best: true
+  attention_refinement_enabled: true
+  attention_refinement_metric: rmse
+  attention_refinement_patience: 1
+  attention_refinement_min_delta: 0.005
+  attention_refinement_gap_threshold: 0.15
+  attention_refinement_rel_gap_threshold: 0.15
+  attention_refinement_require_val_worse_than_best: true
+  attention_refinement_lr_factor: 0.01
+  attention_refinement_query_epochs: 25
+  attention_refinement_query_weight_start: 0.0
+  attention_refinement_query_weight_end: 1.0
+  attention_refinement_stop_after_query_epochs: true
+  enable_progress_bar: true
+  enable_model_summary: true
+  stage_2_launch: false # merge train+val data, train for optimal number of epochs and eval on external test
+  validation_instance_importance_enabled: false
+  validation_instance_importance_min_keep: 3
+  validation_instance_importance_max_keep: 12
+  validation_instance_importance_attention_weight: 0.5
+  validation_instance_importance_impact_weight: 0.8 #paper 0.5
