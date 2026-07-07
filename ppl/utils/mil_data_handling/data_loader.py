@@ -127,7 +127,7 @@ class MILDataModule(pl.LightningDataModule):
             LOGGER.info("[DM] Using on-demand loading mode to reduce memory usage")
 
     # Lightning API
-    def setup(self, stage: str | None = None, is_final_model: bool = False):
+    def setup(self, stage: str | None = None):
         """Set up the data module by loading and preprocessing data.
 
         This method handles:
@@ -141,19 +141,15 @@ class MILDataModule(pl.LightningDataModule):
         ----------
         stage : str | None
             The stage of the pipeline (fit, validate, test, predict)
-        is_final_model : bool, optional
-            Whether this is for the final model, by default False
         """
         # Implementation details are in data_module_impl.py
-        self.is_final_model = is_final_model
-        setup_data_module(self, stage, is_final_model=is_final_model)
+        setup_data_module(self, stage)
 
     def _save_bags_to_disk(
         self,
         bags,
         bag_ids,
         split,
-        is_final_model=False,
         cluster_ids=None,
         series_labels=None,
     ):
@@ -165,7 +161,6 @@ class MILDataModule(pl.LightningDataModule):
             bag_ids,
             split,
             self._cache_dir,
-            is_final_model=is_final_model,
             cluster_ids=cluster_ids,
             cluster_config=(
                 cluster_config_signature(self.cfg)

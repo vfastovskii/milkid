@@ -506,7 +506,6 @@ def _run_phase3_confirmation(
                 seed,
             ),
             "trainer.run_name": f"phase3_rank{config_rank:02d}_seed{seed}",
-            "trainer.stage_2_launch": False,
             "trainer.log_per_epoch": False,
             "trainer.save_attention_artifacts": False,
             "trainer.validation_instance_importance_enabled": False,
@@ -651,7 +650,6 @@ def _write_final_config(
         "trainer.experiment_name": _final_experiment_name(runtime_base_cfg, args),
         "trainer.log_save_dir": _final_log_save_dir(runtime_base_cfg, args),
         "trainer.run_name": args.final_run_name,
-        "trainer.stage_2_launch": bool(args.final_stage2),
         "trainer.log_per_epoch": bool(args.final_log_per_epoch),
         "trainer.save_attention_artifacts": bool(args.save_final_attention),
         "trainer.validation_instance_importance_enabled": bool(
@@ -666,11 +664,10 @@ def _write_final_config(
     _write_yaml(final_cfg, final_config_path)
     LOGGER.info("[FINAL] Wrote final optimized config: %s", final_config_path)
     LOGGER.info(
-        "[FINAL] experiment_name=%s log_save_dir=%s stage_2_launch=%s "
+        "[FINAL] experiment_name=%s log_save_dir=%s "
         "save_attention_artifacts=%s validation_instance_importance=%s",
         final_overrides["trainer.experiment_name"],
         final_overrides["trainer.log_save_dir"],
-        final_overrides["trainer.stage_2_launch"],
         final_overrides["trainer.save_attention_artifacts"],
         final_overrides["trainer.validation_instance_importance_enabled"],
     )
@@ -737,9 +734,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--final-experiment-name", default=None)
     parser.add_argument("--final-log-save-dir", default=None)
     parser.add_argument("--final-run-name", default="final_best")
-    parser.add_argument("--final-stage2", action="store_true", dest="final_stage2")
-    parser.add_argument("--no-final-stage2", action="store_false", dest="final_stage2")
-    parser.set_defaults(final_stage2=True)
     parser.add_argument("--final-log-per-epoch", action="store_true")
     parser.add_argument("--save-final-attention", action="store_true", dest="save_final_attention")
     parser.add_argument("--no-save-final-attention", action="store_false", dest="save_final_attention")

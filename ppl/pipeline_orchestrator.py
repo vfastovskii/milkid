@@ -22,7 +22,6 @@ _SAFE_CLEANUP_ATTRS: tuple[str, ...] = (
     "config_manager",
     "model_trainer",
     "split_trainer",
-    "model_evaluator",
 )
 
 class PipelineOrchestrator:
@@ -62,7 +61,6 @@ class PipelineOrchestrator:
 
         self.model_trainer = self.component_factory.model_trainer
         self.split_trainer = self.component_factory.split_trainer
-        self.model_evaluator = self.component_factory.model_evaluator
 
     # Resource management
     def _cleanup_resources(self) -> None:
@@ -94,16 +92,12 @@ class PipelineOrchestrator:
 
     # Public API
     def run(self) -> None:
-        """Train on the predefined split, then optionally run final evaluation."""
+        """Train on train, validate on val, and test on test (predefined split)."""
         if not self._components_ready:
             raise RuntimeError("Attempted to run pipeline before it was ready.")
 
         try:
-            execute_pipeline(
-                self.config,
-                self.split_trainer,
-                self.model_evaluator,
-            )
+            execute_pipeline(self.config, self.split_trainer)
         finally:
             # Always attempt cleanup – even if execute_pipeline raised.
             self._cleanup_resources()

@@ -179,7 +179,6 @@ trainer:
   attention_refinement_stop_after_query_epochs: true
   enable_progress_bar: true
   enable_model_summary: true
-  stage_2_launch: false # merge train+val data, train for optimal number of epochs and eval on external test
   validation_instance_importance_enabled: false
   validation_instance_importance_min_keep: 3
   validation_instance_importance_max_keep: 12

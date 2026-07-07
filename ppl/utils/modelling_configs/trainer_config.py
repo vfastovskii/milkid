@@ -49,14 +49,10 @@ class TrainerConfig:
     tracking_uri : Optional[str]
         URI for tracking
     log_per_epoch : bool
-        If True, log attention weights and embeddings at the end of every epoch. If False, only log once for the trained model selected by early stopping (Stage 1).
+        If True, log attention weights and embeddings at the end of every epoch. If False, only log once for the best model selected by early stopping.
     save_attention_artifacts : bool
         If True, export post-training attention-weight artifacts. Disable during
         HPO sweeps so only the final selected model writes attention files.
-    stage_2_launch : bool
-        If False, skip Stage 2 (final fit on train+val and test) and finish after Stage 1. Defaults to True.
-    stage_1_test_on_predefined_split : bool
-        If True, after Stage 1 training/validation, evaluate the best Stage 1 model on the predefined test split (split==2) if available. Defaults to True.
     """
     # Basic training parameters
     max_epochs: int = 150
@@ -113,10 +109,6 @@ class TrainerConfig:
     attention_refinement_query_weight_start: float = 0.0
     attention_refinement_query_weight_end: float = 1.0
     attention_refinement_stop_after_query_epochs: bool = True
-
-    # Pipeline stage control
-    stage_2_launch: bool = True
-    stage_1_test_on_predefined_split: bool = True
 
     # Optional validation-set KID interpretation.
     validation_instance_importance_enabled: bool = False

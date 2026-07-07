@@ -974,7 +974,6 @@ def save_bags_to_disk(
     bag_ids: List[str],
     split: str,
     cache_dir: Path,
-    is_final_model: bool = False,
     cluster_ids: Optional[List[np.ndarray]] = None,
     cluster_config: Optional[Dict[str, object]] = None,
     series_labels: Optional[Sequence[str]] = None,
@@ -991,8 +990,6 @@ def save_bags_to_disk(
         Dataset split name (train, val, test)
     cache_dir : Path
         Directory to save bags to
-    is_final_model : bool, optional
-        Whether this is for the final model, by default False
 
     Returns
     -------
@@ -1002,15 +999,10 @@ def save_bags_to_disk(
     if not cache_dir:
         raise ValueError("Cache directory not specified")
 
-    LOGGER.info(f"Saving bags to disk: split={split}, is_final_model={is_final_model}")
+    LOGGER.info(f"Saving bags to disk: split={split}")
 
-    # Create split directory: final model caches under "final/", else at the root.
-    if is_final_model:
-        split_dir = cache_dir / "final" / split
-        LOGGER.info(f"Creating directory for final model {split} data: {split_dir}")
-    else:
-        split_dir = cache_dir / split
-        LOGGER.info(f"Creating directory for {split} data: {split_dir}")
+    split_dir = cache_dir / split
+    LOGGER.info(f"Creating directory for {split} data: {split_dir}")
 
     split_dir.mkdir(parents=True, exist_ok=True)
 

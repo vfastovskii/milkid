@@ -1,8 +1,8 @@
 """Single train/validation/test run for the Multi-Instance Learning Kit (MILK).
 
-The dataset uses a predefined split (0=train, 1=val, 2=test), so there is no
-cross-validation: the model trains on the train split, is selected on the
-validation split, and Stage 1 evaluates the best checkpoint on the test split.
+The dataset uses a predefined split (0=train, 1=val, 2=test): the model trains
+on the train split, is selected on the validation split, and the best checkpoint
+is evaluated on the test split.
 """
 from __future__ import annotations
 
@@ -60,14 +60,14 @@ class SplitTrainer:
         self.tracking_uri = tracking_uri
 
     def run(self) -> dict[str, float]:
-        """Fit on the train split, validate, and (Stage 1) test the best model.
+        """Fit on the train split, validate on val, and test the best model.
 
         Returns
         -------
         dict[str, float]
             Validation metrics for the best checkpoint.
         """
-        LOGGER.info("[TRAIN] Stage 1: train on split=0, validate on split=1")
+        LOGGER.info("[TRAIN] Train on split=0, validate on split=1, test on split=2")
 
         dm = MILDataModule(self.data_cfg)
         dm.setup("fit")

@@ -42,7 +42,7 @@ def validate_pipeline_components(component_factory: PipelineComponentFactory) ->
     RuntimeError
         If any required component is missing
     """
-    required_attrs = ['model_trainer', 'split_trainer', 'model_evaluator']
+    required_attrs = ['model_trainer', 'split_trainer']
     for attr in required_attrs:
         if not hasattr(component_factory, attr) or getattr(component_factory, attr) is None:
             raise RuntimeError(f"Component factory missing required attribute: {attr}")

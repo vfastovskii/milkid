@@ -212,7 +212,7 @@ def _normalize_scaled_bags_by_fingerprint_blocks(
     normalize_split("test", test_bags)
 
 
-def setup_data_module(self, stage: str | None = None, is_final_model: bool = False):
+def setup_data_module(self, stage: str | None = None):
     """Set up the data module by loading and preprocessing data.
 
     This method handles:
@@ -228,10 +228,8 @@ def setup_data_module(self, stage: str | None = None, is_final_model: bool = Fal
         The data module instance
     stage : str | None
         The stage of the pipeline (fit, validate, test, predict)
-    is_final_model : bool, optional
-        Whether this is for the final model, by default False
     """
-    LOGGER.info("[DM] DataModule.setup(stage=%s, is_final_model=%s) called", stage, is_final_model)
+    LOGGER.info("[DM] DataModule.setup(stage=%s) called", stage)
     if self._train is not None:
         return
 
@@ -244,18 +242,9 @@ def setup_data_module(self, stage: str | None = None, is_final_model: bool = Fal
 
     # Check if we can load pre-processed datasets from cache
     if self._cache_dir and self._cache_dir.exists():
-        # Final model caches under "final/"; standard runs cache at the root.
-        if is_final_model:
-            final_dir = self._cache_dir / "final"
-            train_dir = final_dir / "train"
-            val_dir = final_dir / "val"
-            LOGGER.info(f"[DM] Looking for final model datasets in {final_dir}")
-        else:
-            train_dir = self._cache_dir / "train"
-            val_dir = self._cache_dir / "val"
-
-        # Test directory
-        test_dir = (final_dir / "test") if is_final_model else (self._cache_dir / "test")
+        train_dir = self._cache_dir / "train"
+        val_dir = self._cache_dir / "val"
+        test_dir = self._cache_dir / "test"
 
         # Check if the required directories and files exist
         if train_dir.exists():
@@ -494,7 +483,7 @@ def setup_data_module(self, stage: str | None = None, is_final_model: bool = Fal
 
     # Process data and create datasets
     train_dataset, val_dataset, test_dataset = process_data(
-        self, df, cfg, initial_memory, start_time, is_final_model=is_final_model
+        self, df, cfg, initial_memory, start_time
     )
 
     # Store the datasets
@@ -503,8 +492,8 @@ def setup_data_module(self, stage: str | None = None, is_final_model: bool = Fal
     self._test = test_dataset
 
 
-def process_data(self, df: pd.DataFrame, cfg: DataLoaderConfig, 
-                initial_memory: float, start_time: float, is_final_model: bool = False):
+def process_data(self, df: pd.DataFrame, cfg: DataLoaderConfig,
+                initial_memory: float, start_time: float):
     """Process the data and create datasets.
 
     Parameters
@@ -519,8 +508,6 @@ def process_data(self, df: pd.DataFrame, cfg: DataLoaderConfig,
         Initial memory usage in GB
     start_time : float
         Start time of the setup process
-    is_final_model : bool, optional
-        Whether this is for the final model, by default False
 
     Returns
     -------
@@ -552,23 +539,12 @@ def process_data(self, df: pd.DataFrame, cfg: DataLoaderConfig,
         df_val = df[df[cfg.split_col] == 1].copy()
         df_test = df[df[cfg.split_col] == 2].copy()
 
-        if is_final_model:
-            # Final model: fit the scaler and train on train+val, keep test held out.
-            df_train = pd.concat([df_train, df_val], ignore_index=True)
-            df_val = df.iloc[0:0].copy()
-            has_validation = False
-            LOGGER.info(
-                "[DM] Predefined split (final): %d train+val bags, %d test bags",
-                df_train[cfg.bag_id_col].nunique(),
-                df_test[cfg.bag_id_col].nunique(),
-            )
-        else:
-            LOGGER.info(
-                "[DM] Predefined split: %d train / %d val / %d test bags",
-                df_train[cfg.bag_id_col].nunique(),
-                df_val[cfg.bag_id_col].nunique(),
-                df_test[cfg.bag_id_col].nunique(),
-            )
+        LOGGER.info(
+            "[DM] Predefined split: %d train / %d val / %d test bags",
+            df_train[cfg.bag_id_col].nunique(),
+            df_val[cfg.bag_id_col].nunique(),
+            df_test[cfg.bag_id_col].nunique(),
+        )
     else:
         # No predefined split: carve a stratified test set, then optionally a val set.
         sss = StratifiedShuffleSplit(
@@ -580,7 +556,7 @@ def process_data(self, df: pd.DataFrame, cfg: DataLoaderConfig,
         df_train = df[df[cfg.bag_id_col].isin(train_bags)].copy()
         df_test = df[df[cfg.bag_id_col].isin(test_bags)].copy()
 
-        if is_final_model or not cfg.val_partition:
+        if not cfg.val_partition:
             df_val = df.iloc[0:0].copy()
             has_validation = False
             LOGGER.info(
@@ -801,7 +777,6 @@ def process_data(self, df: pd.DataFrame, cfg: DataLoaderConfig,
             tr_bags,
             tr_ids,
             "train",
-            is_final_model=is_final_model,
             cluster_ids=tr_cluster_ids,
             series_labels=tr_series_labels,
         )
@@ -812,7 +787,6 @@ def process_data(self, df: pd.DataFrame, cfg: DataLoaderConfig,
                 va_bags,
                 va_ids,
                 "val",
-                is_final_model=is_final_model,
                 cluster_ids=va_cluster_ids,
                 series_labels=va_series_labels,
             )
@@ -825,36 +799,14 @@ def process_data(self, df: pd.DataFrame, cfg: DataLoaderConfig,
             te_bags,
             te_ids,
             "test",
-            is_final_model=is_final_model,
             cluster_ids=te_cluster_ids,
             series_labels=te_series_labels,
         )
 
         # Get the file paths
-        if is_final_model:
-            # For final model, use the "final" directory
-            train_file = self._cache_dir / "final" / "train" / "train.pkl"
-            val_file = self._cache_dir / "final" / "val" / "val.pkl" if va_bags else None
-            test_file = self._cache_dir / "final" / "test" / "test.pkl"
-            LOGGER.info(f"[DM] Using final model directories for data files: train={train_file}, val={val_file}, test={test_file}")
-
-            # Ensure the directories exist
-            train_dir = train_file.parent
-            train_dir.mkdir(parents=True, exist_ok=True)
-            LOGGER.info(f"[DM] Ensured train directory exists: {train_dir}")
-
-            if va_bags:
-                val_dir = val_file.parent
-                val_dir.mkdir(parents=True, exist_ok=True)
-                LOGGER.info(f"[DM] Ensured val directory exists: {val_dir}")
-
-            test_dir = test_file.parent
-            test_dir.mkdir(parents=True, exist_ok=True)
-            LOGGER.info(f"[DM] Ensured test directory exists: {test_dir}")
-        else:
-            train_file = self._cache_dir / "train" / "train.pkl"
-            val_file = self._cache_dir / "val" / "val.pkl" if va_bags else None
-            test_file = self._cache_dir / "test" / "test.pkl"
+        train_file = self._cache_dir / "train" / "train.pkl"
+        val_file = self._cache_dir / "val" / "val.pkl" if va_bags else None
+        test_file = self._cache_dir / "test" / "test.pkl"
 
         # Create datasets based on loading mode
         if self._on_demand_loading:

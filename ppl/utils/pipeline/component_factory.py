@@ -13,7 +13,6 @@ from ppl.utils.mil_data_handling.data_loader import DataLoaderConfig
 from ppl.utils.modelling_configs.model_builder_config import ModelBuilderConfig
 from ppl.utils.modelling_configs.trainer_config import TrainerConfig, TrainerBuilder
 from ppl.utils.model_trainer.split_trainer import SplitTrainer
-from ppl.utils.model_trainer.model_evaluator import ModelEvaluator
 from ppl.utils.model_trainer.model_trainer import ModelTrainer
 
 # Global logging
@@ -25,8 +24,7 @@ class PipelineComponentFactory:
 
     This class is responsible for:
     - Creating and initializing the ModelTrainer
-    - Creating and initializing the SplitTrainer (Stage 1)
-    - Creating and initializing the ModelEvaluator (Stage 2)
+    - Creating and initializing the SplitTrainer
     """
 
     def __init__(
@@ -70,12 +68,11 @@ class PipelineComponentFactory:
         # Components
         self.model_trainer = None
         self.split_trainer = None
-        self.model_evaluator = None
 
     def create_ppl_components(self) -> None:
         """Create all pipeline components.
 
-        This method initializes the ModelTrainer, SplitTrainer, and ModelEvaluator.
+        This method initializes the ModelTrainer and SplitTrainer.
 
         Raises
         ------
@@ -89,7 +86,6 @@ class PipelineComponentFactory:
             # Initialize components
             self._create_model_trainer()
             self._create_split_trainer(shared_config)
-            self._create_model_evaluator(shared_config)
         except Exception as e:
             LOGGER.error(f"Failed to create components: {str(e)}")
             LOGGER.debug(f"Component creation error details: {traceback.format_exc()}")
@@ -137,7 +133,7 @@ class PipelineComponentFactory:
             raise ValueError(f"{self.model_trainer.__class__.__name__} initialization failed: {str(e)}") from e
 
     def _create_split_trainer(self, shared_config: Dict[str, Any]) -> None:
-        """Initialize the single-split trainer (Stage 1).
+        """Initialize the single-split trainer.
 
         Parameters
         ----------
@@ -160,28 +156,3 @@ class PipelineComponentFactory:
             LOGGER.error(f"Failed to initialize SplitTrainer: {str(e)}")
             LOGGER.debug(f"SplitTrainer initialization error details: {traceback.format_exc()}")
             raise ValueError(f"SplitTrainer initialization failed: {str(e)}") from e
-
-    def _create_model_evaluator(self, shared_config: Dict[str, Any]) -> None:
-        """Initialize the model evaluator.
-
-        Parameters
-        ----------
-        shared_config : Dict[str, Any]
-            Shared configuration parameters
-
-        Raises
-        ------
-        ValueError
-            If model evaluator initialization fails
-        """
-        try:
-            self.model_evaluator = ModelEvaluator(
-                data_cfg=self.data_cfg,
-                model_trainer=self.model_trainer,
-                **shared_config
-            )
-            LOGGER.info(f"{self.model_evaluator.__class__.__name__} initialized")
-        except Exception as e:
-            LOGGER.error(f"Failed to initialize {self.model_evaluator.__class__.__name__}: {str(e)}")
-            LOGGER.debug(f"{self.model_evaluator.__class__.__name__} initialization error details: {traceback.format_exc()}")
-            raise ValueError(f"{self.model_evaluator.__class__.__name__} initialization failed: {str(e)}") from e
