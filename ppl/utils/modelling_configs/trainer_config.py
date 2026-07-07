@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, List, Union, Dict, Any
+from typing import Optional, List, Union, Any
 
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import Callback
@@ -144,7 +144,6 @@ class TrainerBuilder:
         pl.Trainer
             Configured PyTorch Lightning Trainer
         """
-        import torch
 
         # Determine accelerator if not specified
         accelerator = config.accelerator

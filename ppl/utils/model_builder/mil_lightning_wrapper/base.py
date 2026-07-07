@@ -5,10 +5,8 @@ from __future__ import annotations
 import dataclasses as dc
 import logging
 import traceback
-from typing import Tuple
 
 import pytorch_lightning as pl
-import torch
 import torchmetrics as tm
 
 from ppl.utils.adaptive_entropic_loss import AdaptiveEntropicLoss

@@ -11,7 +11,7 @@ from typing import Any, Dict
 
 from ppl.utils.mil_data_handling.data_loader import DataLoaderConfig
 from ppl.utils.modelling_configs.model_builder_config import ModelBuilderConfig
-from ppl.utils.modelling_configs.trainer_config import TrainerConfig, TrainerBuilder
+from ppl.utils.modelling_configs.trainer_config import TrainerConfig
 from ppl.utils.model_trainer.split_trainer import SplitTrainer
 from ppl.utils.model_trainer.model_trainer import ModelTrainer
 

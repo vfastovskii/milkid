@@ -13,7 +13,7 @@ from ppl.utils.modelling_configs import (
     PipelineConfig,
     TrainerOptimConfig,
 )
-from ppl.utils.modelling_configs.trainer_config import TrainerConfig, TrainerBuilder
+from ppl.utils.modelling_configs.trainer_config import TrainerConfig
 from ppl.utils.pipeline.config_override_utils import override_dataclass
 from ppl.utils.reproducibility import set_deterministic
 

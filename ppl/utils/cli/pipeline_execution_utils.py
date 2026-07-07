@@ -1,7 +1,6 @@
 """Pipeline execution utils for the command-line interface."""
 import argparse
 import logging
-import sys
 from pathlib import Path
 
 from ppl.pipeline_orchestrator import PipelineOrchestrator

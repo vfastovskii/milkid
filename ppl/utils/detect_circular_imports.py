@@ -7,7 +7,6 @@ import importlib
 import os
 import sys
 from pathlib import Path
-from types import ModuleType
 from typing import Dict, List, Set, Tuple
 
 # Add the project root to the Python path

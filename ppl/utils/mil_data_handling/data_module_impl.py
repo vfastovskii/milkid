@@ -10,7 +10,6 @@ import pickle
 import re
 import time
 from collections import OrderedDict
-from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
