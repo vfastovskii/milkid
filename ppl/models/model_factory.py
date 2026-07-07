@@ -4,8 +4,8 @@ import logging
 
 import pytorch_lightning as pl
 
-from ppl.models.mil_core import MILCore
-from ppl.models.mil_lightning_wrapper import MILModelLightningWrapper
+from ppl.models.core import MILCore
+from ppl.models.lightning import MILModelLightningWrapper
 from ppl.models.component_catalog import COMPONENT_ORDER, build_components
 
 LOGGER = logging.getLogger(__name__)

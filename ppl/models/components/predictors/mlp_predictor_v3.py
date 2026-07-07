@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Literal, Optional
 
-from ppl.models.model_components_factory.predictors.base_predictor import PredictorBase
+from ppl.models.components.predictors.base_predictor import PredictorBase
 
 
 class DropPath(nn.Module):

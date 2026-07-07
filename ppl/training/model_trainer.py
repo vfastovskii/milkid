@@ -8,15 +8,11 @@ from __future__ import annotations
 import logging
 from dataclasses import replace
 from pathlib import Path
-from typing import Dict, Sequence, List, Optional
+from typing import Dict, Sequence, Optional
 
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import (
-    EarlyStopping,
-    LearningRateMonitor,
     ModelCheckpoint,
-    ModelSummary,
-    TQDMProgressBar,
 )
 
 from ppl.data.data_loader import MILDataModule
@@ -24,8 +20,9 @@ from ppl.models.model_builder import ModelBuilder
 from ppl.config.model_builder_config import ModelBuilderConfig
 from ppl.config.trainer_config import TrainerConfig, TrainerBuilder
 from ppl.pipeline.mlflow_utils import SafeMLFlowLogger, log_metrics
-from ppl.training.checkpoints import MinEpochModelCheckpoint
 from ppl.training.artifacts import export_fit_artifacts, evaluate_on_test
+from ppl.training.callbacks import build_callbacks, extract_conformer_ids
+from ppl.training.runtime_config import attach_trainer_runtime_config
 
 LOGGER = logging.getLogger(__name__)
 
@@ -95,100 +92,10 @@ class ModelTrainer:
         return model
 
     def _attach_trainer_runtime_config(self, model: pl.LightningModule) -> None:
-        """Attach non-hparam trainer controls to a freshly loaded model.
-
-        Checkpoint loading reconstructs the LightningModule from checkpoint
-        hparams and explicit constructor args. Runtime controls owned by
-        TrainerConfig, such as attention-refinement scheduling, are not
-        constructor args, so reattach them before validation/test/export.
-        """
-        checkpoint_min_epoch = int(
-            getattr(self.trainer_cfg, "checkpoint_min_epoch", 0) or 0
+        """Reattach TrainerConfig runtime controls to a (re)loaded model."""
+        attach_trainer_runtime_config(
+            model, self.trainer_cfg, self._checkpoint_monitor_metric()
         )
-        setattr(model, "_checkpoint_min_epoch", checkpoint_min_epoch)
-        for attr in (
-            "overfit_gap_stop_enabled",
-            "overfit_gap_metric",
-            "overfit_gap_patience",
-            "overfit_gap_min_delta",
-            "overfit_gap_abs_threshold",
-            "overfit_gap_rel_threshold",
-            "overfit_gap_require_val_worse_than_best",
-            "attention_refinement_enabled",
-            "attention_refinement_metric",
-            "attention_refinement_patience",
-            "attention_refinement_min_delta",
-            "attention_refinement_gap_threshold",
-            "attention_refinement_rel_gap_threshold",
-            "attention_refinement_require_val_worse_than_best",
-            "attention_refinement_lr_factor",
-            "attention_refinement_query_epochs",
-            "attention_refinement_query_weight_start",
-            "attention_refinement_query_weight_end",
-            "attention_refinement_stop_after_query_epochs",
-        ):
-            setattr(model, f"_{attr}", getattr(self.trainer_cfg, attr, None))
-        if checkpoint_min_epoch > 0:
-            LOGGER.info(
-                "[MODEL] Best-checkpoint selection uses %s only for epochs >= %d",
-                self._checkpoint_monitor_metric(),
-                checkpoint_min_epoch,
-            )
-        if bool(getattr(self.trainer_cfg, "overfit_gap_stop_enabled", False)):
-            LOGGER.info(
-                "[MODEL] Overfit-gap early stop enabled: metric=%s "
-                "patience=%d abs_gap>=%.4f rel_gap>=%.4f",
-                getattr(self.trainer_cfg, "overfit_gap_metric", "rmse"),
-                int(getattr(self.trainer_cfg, "overfit_gap_patience", 2) or 2),
-                float(getattr(self.trainer_cfg, "overfit_gap_abs_threshold", 0.10)),
-                float(getattr(self.trainer_cfg, "overfit_gap_rel_threshold", 0.15)),
-            )
-        if bool(getattr(self.trainer_cfg, "attention_refinement_enabled", False)):
-            LOGGER.info(
-                "[MODEL] Attention-refinement schedule enabled: metric=%s "
-                "patience=%d gap>=%.4f rel_gap>=%.4f lr_factor=%.4f "
-                "query_epochs=%d query_weight=%.3f->%.3f",
-                getattr(self.trainer_cfg, "attention_refinement_metric", "rmse"),
-                int(getattr(self.trainer_cfg, "attention_refinement_patience", 1) or 1),
-                float(
-                    getattr(
-                        self.trainer_cfg,
-                        "attention_refinement_gap_threshold",
-                        0.08,
-                    )
-                ),
-                float(
-                    getattr(
-                        self.trainer_cfg,
-                        "attention_refinement_rel_gap_threshold",
-                        0.15,
-                    )
-                ),
-                float(getattr(self.trainer_cfg, "attention_refinement_lr_factor", 0.1)),
-                int(getattr(self.trainer_cfg, "attention_refinement_query_epochs", 25) or 25),
-                float(
-                    getattr(
-                        self.trainer_cfg,
-                        "attention_refinement_query_weight_start",
-                        0.0,
-                    )
-                ),
-                float(
-                    getattr(
-                        self.trainer_cfg,
-                        "attention_refinement_query_weight_end",
-                        1.0,
-                    )
-                ),
-            )
-        if bool(
-            getattr(self.trainer_cfg, "checkpoint_after_attention_refinement", False)
-        ):
-            LOGGER.info(
-                "[MODEL] Best-checkpoint selection is gated to attention "
-                "refinement: min_query_epochs=%d",
-                int(getattr(self.trainer_cfg, "checkpoint_min_query_epochs", 1) or 1),
-            )
 
     def _validation_monitor_metric(self) -> str:
         """Metric used for checkpointing/early stopping on validation data."""
@@ -205,222 +112,13 @@ class ModelTrainer:
         """Metric used for selecting checkpoints and early stopping."""
         return self._validation_monitor_metric()
 
-    def _make_model_checkpoint(self, **kwargs) -> ModelCheckpoint:
-        min_epoch = int(getattr(self.trainer_cfg, "checkpoint_min_epoch", 0) or 0)
-        monitor = kwargs.get("monitor")
-        require_refinement = bool(
-            getattr(self.trainer_cfg, "checkpoint_after_attention_refinement", False)
-        )
-        min_query_epochs = int(
-            getattr(self.trainer_cfg, "checkpoint_min_query_epochs", 1) or 1
-        )
-        if (
-            (min_epoch > 0 or require_refinement)
-            and monitor == self._checkpoint_monitor_metric()
-        ):
-            return MinEpochModelCheckpoint(
-                min_epoch=min_epoch,
-                require_attention_refinement=require_refinement,
-                min_query_epochs=min_query_epochs,
-                **kwargs,
-            )
-        return ModelCheckpoint(**kwargs)
-
-    def _make_early_stopping_callback(self, validation_monitor: str):
-        if bool(getattr(self.trainer_cfg, "attention_refinement_enabled", False)):
-            LOGGER.info(
-                "[MODEL] Lightning EarlyStopping disabled because "
-                "attention-refinement controls the post-overfit training phase."
-            )
-            return None
-        return EarlyStopping(
-            monitor=validation_monitor,
-            mode="min",
-            patience=self.model_cfg.optim.lr_patience,
-            verbose=True,
-            check_on_train_epoch_end=False,
-        )
-        
-    def _extract_conformer_ids(self) -> Dict[str, List[str]]:
-        """Extract conformer IDs consistent with bag construction rules.
-        
-        - Train: exclude instances containing "_experimental_pose".
-        - Val/Test: create two entries per original bag where applicable:
-          <bag_id>__noexp with non-experimental instances, and <bag_id>__exp with experimental instances.
-        """
-        if self.data_module is None:
-            LOGGER.warning("[MODEL] No data module available, cannot extract conformer IDs")
-            return None
-        try:
-            import pandas as pd
-            
-            # Get CSV and columns
-            csv_path = self.data_module._csv
-            cfg = self.data_module.cfg
-            bag_col = cfg.bag_id_col
-            inst_col = cfg.inst_id_col
-            split_col = getattr(cfg, 'split_col', None)
-            predefined = getattr(cfg, 'predefined_split', False)
-            
-            LOGGER.info(f"[MODEL] Extracting conformer IDs from {csv_path}")
-            df = pd.read_csv(csv_path)
-            
-            conf_ids: Dict[str, List[str]] = {}
-            
-            if predefined and split_col in df.columns:
-                # Split masks: 0=train, 1=val, 2=test
-                tr_df = df[df[split_col] == 0]
-                va_df = df[df[split_col] == 1]
-                te_df = df[df[split_col] == 2]
-                
-                # TRAIN: non-experimental only
-                for bag_id, group in tr_df.groupby(bag_col):
-                    inst_list = list(map(str, group[inst_col].astype(str)))
-                    inst_nonexp = [iid for iid in inst_list if "_experimental_pose" not in iid]
-                    if len(inst_nonexp) == 0:
-                        continue
-                    conf_ids[str(bag_id)] = inst_nonexp
-                
-                # VAL/TEST: create full and __noexp entries
-                def add_split(split_df):
-                    for bag_id, group in split_df.groupby(bag_col):
-                        inst_list = list(map(str, group[inst_col].astype(str)))
-                        nonexp = [iid for iid in inst_list if "_experimental_pose" not in iid]
-                        # Full bag with ALL instances
-                        conf_ids[f"{bag_id}"] = inst_list
-                        # __noexp duplicate only if anything would be removed
-                        if len(nonexp) > 0 and len(nonexp) < len(inst_list):
-                            conf_ids[f"{bag_id}__noexp"] = nonexp
-                        else:
-                            # Special case: single-instance bag that is experimental-only → create '__noexp' with the same instance
-                            if len(inst_list) == 1 and ("_experimental_pose" in inst_list[0]):
-                                conf_ids[f"{bag_id}__noexp"] = inst_list
-                add_split(va_df)
-                add_split(te_df)
-            else:
-                # Fallback when predefined split is not available:
-                # For all bags, provide full and __noexp entries.
-                for bag_id, group in df.groupby(bag_col):
-                    inst_list = list(map(str, group[inst_col].astype(str)))
-                    nonexp = [iid for iid in inst_list if "_experimental_pose" not in iid]
-                    # Full bag key
-                    conf_ids[f"{bag_id}"] = inst_list
-                    # __noexp only if fewer than full
-                    if len(nonexp) > 0 and len(nonexp) < len(inst_list):
-                        conf_ids[f"{bag_id}__noexp"] = nonexp
-                    else:
-                        # Special case: single-instance bag that is experimental-only → create '__noexp' with the same instance
-                        if len(inst_list) == 1 and ("_experimental_pose" in inst_list[0]):
-                            conf_ids[f"{bag_id}__noexp"] = inst_list
-            
-            LOGGER.info(f"[MODEL] Prepared conformer IDs for {len(conf_ids)} bag keys (with suffixes where applicable)")
-            return conf_ids
-        except Exception as e:
-            LOGGER.error(f"[MODEL] Error extracting conformer IDs: {e}")
-            import traceback
-            LOGGER.debug(traceback.format_exc())
-            return None
+    def _extract_conformer_ids(self):
+        """Conformer-ID mapping for attention/embedding artifacts."""
+        return extract_conformer_ids(self.data_module)
 
     def callbacks(self) -> Sequence[pl.callbacks.Callback]:
-        """Create a list of callbacks for the PyTorch Lightning Trainer.
-
-        Returns
-        -------
-        Sequence[pl.callbacks.Callback]
-            List of callbacks:
-            - ModelCheckpoint: Save the best model based on validation loss
-            - EarlyStopping: Stop training when validation loss stops improving
-            - LearningRateMonitor: Log learning rate during training
-            - RichProgressBar: Display a rich progress bar during training
-            - ModelSummary: Display a summary of the model architecture
-            - EpochAttentionWeightLogger: Log attention weights per epoch for training and validation bags
-        """
-        run_suffix = f"seed{self.seed}"
-        iteration_label = getattr(self, "_training_iteration_label", "")
-        if iteration_label:
-            run_suffix = f"{run_suffix}_{iteration_label}"
-
-        # If experiment_name is provided, save models to the experiment directory
-        if self.experiment_name:
-            # Create experiment directory if it doesn't exist
-            exp_dir = self.log_save_dir.parent / self.experiment_name
-            exp_dir.mkdir(parents=True, exist_ok=True)
-
-            # Save models to the experiment directory
-            dirpath = exp_dir / "models" / "cv"
-            dirpath.mkdir(parents=True, exist_ok=True)
-            LOGGER.info(f"[MODEL] Saving best CV model to {dirpath}")
-            
-            # Create directory for per-epoch attention weights (only if enabled)
-            if self.trainer_cfg.log_per_epoch:
-                attention_dir = exp_dir / "attention_weights_per_epoch"
-                attention_dir.mkdir(parents=True, exist_ok=True)
-                LOGGER.info(f"[MODEL] Saving per-epoch attention weights to {attention_dir}")
-            else:
-                attention_dir = None
-        else:
-            dirpath = self.log_save_dir / "checkpoints"
-            attention_dir = self.log_save_dir / "attention_weights_per_epoch" if self.trainer_cfg.log_per_epoch else None
-            if attention_dir is not None:
-                attention_dir.mkdir(parents=True, exist_ok=True)
-
-        validation_monitor = self._checkpoint_monitor_metric()
-        ckpt_cb = self._make_model_checkpoint(
-            dirpath=dirpath,
-            filename=f"{run_suffix}_ep{{epoch:03d}}",
-            monitor=validation_monitor,
-            mode="min",
-            save_top_k=1,
-            auto_insert_metric_name=False,
-        )
-
-        # Extract conformer IDs from the CSV file if we have a data module
-        conf_ids = self._extract_conformer_ids()
-        if conf_ids is None:
-            LOGGER.info("[MODEL] Using indices as instance IDs for attention weight plots")
-        else:
-            LOGGER.info(f"[MODEL] Using conformer IDs for attention weight plots ({len(conf_ids)} bags)")
-
-        # Prepare embedding logger directory (only if per-epoch logging is enabled)
-        callbacks_list = [
-            ckpt_cb,
-            LearningRateMonitor(logging_interval="step"),
-        ]
-        early_stop_cb = self._make_early_stopping_callback(validation_monitor)
-        if early_stop_cb is not None:
-            callbacks_list.insert(1, early_stop_cb)
-        if self.trainer_cfg.enable_progress_bar:
-            # Higher refresh rate means less frequent updates, which helps
-            # prevent progress bar jumping.
-            callbacks_list.append(TQDMProgressBar(refresh_rate=20, leave=False))
-        if self.trainer_cfg.enable_model_summary:
-            callbacks_list.append(ModelSummary(max_depth=2))
-
-        if self.trainer_cfg.log_per_epoch:
-            from ppl.training.epoch_attention_weight_logger import EpochAttentionWeightLogger
-            from ppl.training.epoch_embedding_logger import EpochEmbeddingLogger
-
-            if self.experiment_name:
-                embeddings_dir = exp_dir / "embeddings_per_epoch"
-            else:
-                embeddings_dir = self.log_save_dir / "embeddings_per_epoch"
-            embeddings_dir.mkdir(parents=True, exist_ok=True)
-            LOGGER.info(f"[MODEL] Saving per-epoch embeddings to {embeddings_dir}")
-
-            if attention_dir is None:
-                # In case experiment_name was not set and attention_dir was disabled earlier
-                if self.experiment_name:
-                    attention_dir = exp_dir / "attention_weights_per_epoch"
-                else:
-                    attention_dir = self.log_save_dir / "attention_weights_per_epoch"
-                attention_dir.mkdir(parents=True, exist_ok=True)
-
-            callbacks_list += [
-                EpochAttentionWeightLogger(save_dir=str(attention_dir), max_bags=1000, conf_ids=conf_ids, max_epochs=self.max_epochs),
-                EpochEmbeddingLogger(save_dir=str(embeddings_dir), max_bags=1000, conf_ids=conf_ids, max_epochs=self.max_epochs),
-            ]
-
-        return callbacks_list
+        """Build the Lightning callback list for a training run."""
+        return build_callbacks(self)
 
     def create_trainer(self, logger: SafeMLFlowLogger) -> pl.Trainer:
         """Create a PyTorch Lightning Trainer using TrainerBuilder.

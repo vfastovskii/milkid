@@ -11,13 +11,13 @@ import torchmetrics as tm
 
 from ppl.models.adaptive_entropic_loss import AdaptiveEntropicLoss
 from ppl.config.trainer_optim_config import TrainerOptimConfig
-from ppl.models.mil_core import MILCore
+from ppl.models.core import MILCore
 from ppl.models.gradient_tracking import GradientTracker
 
-from ppl.models.mil_lightning_wrapper.memory_management import MemoryManagement
-from ppl.models.mil_lightning_wrapper.parameter_utils import ParameterManagement
-from ppl.models.mil_lightning_wrapper.training import TrainingMethods
-from ppl.models.mil_lightning_wrapper.optimization import OptimizationMethods
+from ppl.models.lightning.memory_management import MemoryManagement
+from ppl.models.lightning.parameter_utils import ParameterManagement
+from ppl.models.lightning.training import TrainingMethods
+from ppl.models.lightning.optimization import OptimizationMethods
 
 LOGGER = logging.getLogger(__name__)
 
