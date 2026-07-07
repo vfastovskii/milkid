@@ -13,7 +13,7 @@ import torch.nn as nn
 
 from ppl.utils.model_builder.mil_core import MILCore
 from ppl.utils.model_builder.mil_lightning_wrapper import MILModelLightningWrapper
-from ppl.utils.model_builder.template_registry import get_template
+from ppl.utils.model_builder.component_catalog import COMPONENT_ORDER, build_components
 
 LOGGER = logging.getLogger(__name__)
 
@@ -78,64 +78,33 @@ class ModelFactory:
                            f"dtype={buffer.dtype}, memory={mem_mb:.2f}MB")
 
     @staticmethod
-    def validate_model_architecture(components, task: str, cfg=None, template_name=None, component_names=None) -> None:
+    def validate_model_architecture(components, task: str, component_names=None) -> None:
         """Validate the model architecture for compatibility.
 
-        This method performs a thorough validation of the model architecture,
-        ensuring that all components have the required dimension attributes
-        and that the dimensions are compatible between components.
+        Checks that adjacent components have matching dimensions and that the
+        predictor output dimension is sensible for the task.
 
         Parameters
         ----------
         components : tuple
-            Tuple of model components
+            Tuple of model components (embedder, aggregator, predictor).
         task : str
-            Task type (classification or regression)
-        cfg : ModelBuilderConfig, optional
-            Model configuration, by default None
-        template_name : str, optional
-            Name of the template to use for validation, by default None.
-            If None, will try to extract from cfg.template, and if not available,
-            will default to "bag_attention"
+            Task type (classification or regression).
         component_names : list, optional
-            Names of the components, by default None.
-            If None, will try to determine from the template definition.
+            Names of the components, defaults to the standard component order.
 
         Raises
         ------
         ValueError
-            If the model architecture is invalid
+            If the model architecture is invalid.
         """
         LOGGER.info("[MODEL] Validating model architecture...")
 
-        # Determine template name to use
-        if template_name is None:
-            if cfg is not None and hasattr(cfg, "template"):
-                template_name = cfg.template.value
-                template_display_name = cfg.template.name
-            else:
-                # Default to bag_attention template if none specified
-                template_name = "bag_attention"
-                template_display_name = "BAG_ATTENTION"
-        else:
-            template_display_name = template_name.upper()
-
-        # Get template specification
-        try:
-            spec = get_template(template_name)
-            template_def = spec.get_template_definition()
-        except Exception as e:
-            LOGGER.error(f"Failed to get template definition: {e}")
-            raise ValueError(f"Failed to get template definition: {e}") from e
-
-        # Determine component names if not provided
         if component_names is None:
-            component_names = template_def.component_order
+            component_names = list(COMPONENT_ORDER)
 
-        # Log component information
-        LOGGER.info(f"[MODEL] Template: {template_display_name}")
         LOGGER.info(f"[MODEL] Component structure: {component_names}")
-        
+
         # Log the dimensions of each component
         for i, (component, name) in enumerate(zip(components, component_names)):
             if hasattr(component, "input_dim") and hasattr(component, "output_dim"):
@@ -180,14 +149,6 @@ class ModelFactory:
                     f"Predictor output_dim ({predictor.output_dim}) != 1 for regression task. "
                     f"This may cause issues with the loss function."
                 )
-
-        # Perform template-specific validation
-        try:
-            spec.validate_architecture(components, task)
-            LOGGER.info(f"[MODEL] Template-specific validation for {template_display_name} passed ✓")
-        except Exception as e:
-            LOGGER.error(f"Template-specific validation failed: {e}")
-            raise ValueError(f"Template-specific validation failed: {e}") from e
 
         LOGGER.info("[MODEL] Model architecture validation passed ✓")
 
@@ -278,7 +239,7 @@ class ModelFactory:
         Returns
         -------
         tuple
-            Tuple of model components according to the template specification
+            (embedder, aggregator, predictor)
 
         Raises
         ------
@@ -287,13 +248,9 @@ class ModelFactory:
         RuntimeError
             If component initialization fails
         """
-        # Get the template specification from the registry
         try:
-            LOGGER.info(f"[MODEL] Using template: {cfg.template.name}")
-            spec = get_template(cfg.template.value)
-            components = spec.build_components(cfg, input_dim)
-            template_def = spec.get_template_definition()
-            LOGGER.info(f"[MODEL] Created components: {template_def.component_order}")
+            components = build_components(cfg, input_dim)
+            LOGGER.info(f"[MODEL] Created components: {list(COMPONENT_ORDER)}")
             return components
         except Exception as e:
             LOGGER.error(f"Failed to create model components: {e}")
@@ -330,14 +287,10 @@ class ModelFactory:
         try:
             # Create components
             components = ModelFactory.create_model_components(cfg, input_dim)
-
-            # Get template definition to determine component names
-            spec = get_template(cfg.template.value)
-            template_def = spec.get_template_definition()
-            component_names = template_def.component_order
+            component_names = list(COMPONENT_ORDER)
 
             # Validate model architecture
-            ModelFactory.validate_model_architecture(components, task, cfg, component_names=component_names)
+            ModelFactory.validate_model_architecture(components, task, component_names=component_names)
 
             # Compose MIL model
             LOGGER.info("[MODEL] Creating core MIL model")
@@ -354,7 +307,6 @@ class ModelFactory:
             LOGGER.info("[MODEL_INIT] Original model initialization details:")
             LOGGER.info(f"[MODEL_INIT] Task: {task}")
             LOGGER.info(f"[MODEL_INIT] Core model type: {core.__class__.__name__}")
-            LOGGER.info(f"[MODEL_INIT] Template: {cfg.template.name}")
             LOGGER.info(f"[MODEL_INIT] Component structure: {component_names}")
             
             # Log component details

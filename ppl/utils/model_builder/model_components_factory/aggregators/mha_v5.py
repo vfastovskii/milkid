@@ -6,10 +6,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
 
-from ppl.utils.model_builder.model_components_registry import register
 
 
-@register("aggregator_type", "mha_v5")
 class MultiHeadAttentionAggregatorV5(nn.Module):
     r"""
     V5 upgrades over V4 (while preserving the same forward I/O contract):

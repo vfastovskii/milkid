@@ -21,7 +21,6 @@ from ppl.utils.model_builder.model_components_factory.embedders.mlp_embedder_v3 
     DropPath,
     MLPEmbedderV3,
 )
-from ppl.utils.model_builder.model_components_registry import register
 
 
 class BagSelfAttentionBlock(nn.Module):
@@ -166,8 +165,6 @@ class BagSelfAttentionBlock(nn.Module):
         }
 
 
-@register("embedder_type", "contextualized_mlp_embedder")
-@register("embedder_type", "contextualized_mlp_embedder_v1")
 class ContextualizedMLPEmbedder(EmbedderBase):
     """Local MLP embedder followed by bag-level self-attention.
 

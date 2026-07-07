@@ -6,10 +6,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
 
-from ppl.utils.model_builder.model_components_registry import register
 
 
-@register("aggregator_type", "mha_att_v4")
 class MultiHeadAttentionAggregatorV4(nn.Module):
     r"""
     Multi-head self-attention aggregator with optional multi-CLS queries.

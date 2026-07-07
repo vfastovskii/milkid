@@ -6,7 +6,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
 
-from ppl.utils.model_builder.model_components_registry import register
 
 
 # -------------------- utils --------------------
@@ -133,7 +132,6 @@ class _EncoderBlock(nn.Module):
 
 
 # -------------------- ViT aggregator (CLS readout only) --------------------
-@register("aggregator_type", "vit_aggregator")
 class VITAggregator(nn.Module):
     r"""
     ViT-style MIL aggregator (no positional encodings).

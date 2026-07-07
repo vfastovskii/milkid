@@ -9,7 +9,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ppl.utils.model_builder.model_components_registry import register
 
 
 class SwiGLUFeedForward(nn.Module):
@@ -112,8 +111,6 @@ class CLSCrossAttentionBlock(nn.Module):
         return query, attn_weights
 
 
-@register("aggregator_type", "cluster_hier_mha")
-@register("aggregator_type", "cluster_hier_mha_v1")
 class ClusterHierarchicalAttentionAggregator(nn.Module):
     """Hierarchical query-attention MIL aggregator.
 

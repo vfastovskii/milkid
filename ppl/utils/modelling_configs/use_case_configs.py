@@ -22,10 +22,9 @@ class ConformersDataLoaderConfig(DataLoaderConfig):
 @dataclass(slots=True, frozen=False)
 class ConformersModelBuilderConfig(ModelBuilderConfig):
     """Model builder configuration for conformers use case."""
-    template: str = "bag_attention"
-    embedder_type: str = "mlp_embedder"
-    aggregator_type: str = "mha_att"
-    predictor_type: str = "mlp_predictor"
+    embedder_type: str = "contextualized_mlp_embedder_v1"
+    aggregator_type: str = "cluster_hier_mha_v1"
+    predictor_type: str = "mlp_predictor_v3"
     input_dim: int = 128
     task: str = "regression"
 

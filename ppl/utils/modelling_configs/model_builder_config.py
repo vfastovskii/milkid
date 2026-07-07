@@ -3,18 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 
 from ppl.utils.modelling_configs.trainer_optim_config import TrainerOptimConfig
-from ppl.utils.model_builder.template_registry import Template
 
 
 @dataclass(slots=True, frozen=False)
 class ModelBuilderConfig:
-    # Model Template
-    template: Template = Template.BAG_ATTENTION
-
     # Model Components
-    embedder_type: str = "mlp_embedder"
-    aggregator_type: str = "mha_att"
-    predictor_type: str = "mlp_predictor"
+    embedder_type: str = "contextualized_mlp_embedder_v1"
+    aggregator_type: str = "cluster_hier_mha_v1"
+    predictor_type: str = "mlp_predictor_v3"
     # Injected from the processed data feature count before model construction.
     input_dim: int | None = None
     task: str = "regression"

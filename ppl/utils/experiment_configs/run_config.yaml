@@ -41,7 +41,6 @@ data:
   val_partition: true  # only used when predefined_split=false
 
 model:
-  template: bag_attention  # Specify which template to use
   embedder_type: contextualized_mlp_embedder_v1
   aggregator_type: cluster_hier_mha_v1
   predictor_type: mlp_predictor_v3
@@ -149,8 +148,8 @@ trainer:
   device: mps
   precision: "32-true"
   log_every_n_steps: 10  # Set to a lower value since we only have 37 training batches
-  log_save_dir: bace809_cluster_hier_mha_200c_2jul_bs16_test12_log #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_d_sc_fixlog
-  experiment_name: bace809_cluster_hier_mha_200c_2jul_bs16_test12 #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_double_scale_fix
+  log_save_dir: bace809_cluster_hier_mha_200c_2jul_bs16_test13_log #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_d_sc_fixlog
+  experiment_name: bace809_cluster_hier_mha_200c_2jul_bs16_test13 #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_double_scale_fix
   run_name: null
   tracking_uri: null
   log_per_epoch: false

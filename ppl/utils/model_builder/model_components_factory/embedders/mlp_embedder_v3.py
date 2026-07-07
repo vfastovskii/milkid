@@ -36,7 +36,6 @@ import torch.nn.functional as F
 from ppl.utils.model_builder.model_components_factory.embedders.base_embedder import (
     EmbedderBase,
 )
-from ppl.utils.model_builder.model_components_registry import register
 
 
 class DropPath(nn.Module):
@@ -98,7 +97,6 @@ class DropPath(nn.Module):
         return x.div(keep_prob) * mask
 
 
-@register("embedder_type", "mlp_embedder_v3")
 class MLPEmbedderV3(EmbedderBase):
     r"""
     Transformer-style residual MLP embedder for MIL instance embeddings.

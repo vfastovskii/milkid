@@ -4,7 +4,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Literal, Optional
 
-from ppl.utils.model_builder.model_components_registry import register
 from ppl.utils.model_builder.model_components_factory.predictors.base_predictor import PredictorBase
 
 
@@ -155,7 +154,6 @@ class _ResFFNBlock(nn.Module):
         return shortcut + y
 
 
-@register("predictor_type", "mlp_predictor_v3")
 class MLPPredictorV3(PredictorBase):
     r"""
     Residual MLP predictor for MIL bag-level outputs.
