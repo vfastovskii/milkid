@@ -1,7 +1,6 @@
 """Use case-specific configuration variants."""
 
 from dataclasses import dataclass
-from typing import List, Optional
 from ppl.utils.modelling_configs.data_loader_config import DataLoaderConfig
 from ppl.utils.modelling_configs.model_builder_config import ModelBuilderConfig
 from ppl.utils.modelling_configs.model_trainer_config import ModelTrainerConfig

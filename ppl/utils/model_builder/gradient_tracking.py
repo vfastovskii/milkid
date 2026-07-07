@@ -14,7 +14,6 @@ The module is designed to work with the Bag-Attention Net architecture
 import torch
 import torch.nn as nn
 import numpy as np
-from typing import Dict, List, Optional, Tuple, Union
 import matplotlib.pyplot as plt
 import io
 from PIL import Image

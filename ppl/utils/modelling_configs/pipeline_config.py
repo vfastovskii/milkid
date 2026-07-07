@@ -1,5 +1,5 @@
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -7,8 +7,7 @@ import yaml
 
 from ppl.utils.modelling_configs.data_loader_config import DataLoaderConfig
 from ppl.utils.modelling_configs.model_builder_config import ModelBuilderConfig
-from ppl.utils.modelling_configs.model_trainer_config import ModelTrainerConfig
-from ppl.utils.modelling_configs.trainer_config import TrainerConfig, TrainerBuilder
+from ppl.utils.modelling_configs.trainer_config import TrainerConfig
 from ppl.utils.modelling_configs.config_registry import ConfigRegistry
 
 LOGGER = logging.getLogger(__name__)

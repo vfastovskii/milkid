@@ -1,6 +1,6 @@
 """Configuration registry for use case-specific configurations."""
 
-from typing import Dict, Type, Any, Tuple
+from typing import Dict, Type, Any
 from ppl.utils.modelling_configs.data_loader_config import DataLoaderConfig
 from ppl.utils.modelling_configs.model_builder_config import ModelBuilderConfig
 from ppl.utils.modelling_configs.model_trainer_config import ModelTrainerConfig

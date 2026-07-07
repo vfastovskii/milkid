@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Iterable, Sequence, Dict, Any, Optional, Union
+from typing import Iterable, Sequence, Dict, Any, Optional
 
 import matplotlib
 

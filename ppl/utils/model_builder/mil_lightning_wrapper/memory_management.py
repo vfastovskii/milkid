@@ -1,6 +1,5 @@
 """Memory management utilities for MIL model."""
 
-import gc
 import logging
 import os
 import time

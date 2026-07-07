@@ -1,6 +1,5 @@
 """Initialization and validation utilities for the PipelineOrchestrator."""
 import logging
-import traceback
 from typing import Tuple
 
 from ppl.utils.modelling_configs.pipeline_config import PipelineConfig
