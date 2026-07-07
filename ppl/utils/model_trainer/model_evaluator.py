@@ -6,7 +6,6 @@ It handles training models on the full training data and evaluating them on test
 from __future__ import annotations
 
 import logging
-from dataclasses import replace
 from pathlib import Path
 
 from ppl.utils.mil_data_handling.data_loader import DataLoaderConfig, MILDataModule
@@ -57,7 +56,6 @@ class ModelEvaluator:
         self.experiment_name = experiment_name
         self.run_name = run_name
         self.tracking_uri = tracking_uri
-        self.cv_seed = data_cfg.cv_seed
 
     def _new_logger(self, run_suffix: str) -> SafeMLFlowLogger:
         """Create a new MLFlow logger with a run suffix.
@@ -91,24 +89,9 @@ class ModelEvaluator:
         """
         LOGGER.info("[FINAL] Stage 2: fit on combined train+val; evaluate on held‑out test (scaler fit on train+val only, no leak)")
 
-        # If num_folds is already 1, don't override it
-        if self.data_cfg.num_folds == 1:
-            full_cfg = replace(
-                self.data_cfg,
-                fold_idx=0,
-                cv_seed=self.cv_seed,
-            )
-        else:
-            full_cfg = replace(
-                self.data_cfg,
-                num_folds=5,  # Still use 5 folds for consistency, but only use fold 0
-                fold_idx=0,
-                cv_seed=self.cv_seed,
-            )
-
-        dm = MILDataModule(full_cfg)
+        dm = MILDataModule(self.data_cfg)
         dm.setup(is_final_model=True)
-        LOGGER.info("[FINAL] Fit/test – Using DataLoaderConfig:\n%s", full_cfg)
+        LOGGER.info("[FINAL] Fit/test – Using DataLoaderConfig:\n%s", self.data_cfg)
         LOGGER.info("[FINAL] Creating directory for final model data")
 
         log_split_distributions(dm, stage="final")

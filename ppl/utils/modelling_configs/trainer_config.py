@@ -56,7 +56,7 @@ class TrainerConfig:
     stage_2_launch : bool
         If False, skip Stage 2 (final fit on train+val and test) and finish after Stage 1. Defaults to True.
     stage_1_test_on_predefined_split : bool
-        If True, after Stage 1 training/validation (when num_folds=1), evaluate the best Stage 1 model on the predefined test split (split==2) if available. Defaults to True.
+        If True, after Stage 1 training/validation, evaluate the best Stage 1 model on the predefined test split (split==2) if available. Defaults to True.
     """
     # Basic training parameters
     max_epochs: int = 150

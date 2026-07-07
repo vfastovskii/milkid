@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import psutil
 import tqdm
-from sklearn.model_selection import StratifiedKFold, StratifiedShuffleSplit
+from sklearn.model_selection import StratifiedShuffleSplit
 from sklearn.preprocessing import StandardScaler
 
 from ppl.utils.mil_data_handling.data_loader_impl import cluster_config_signature
@@ -244,24 +244,13 @@ def setup_data_module(self, stage: str | None = None, is_final_model: bool = Fal
 
     # Check if we can load pre-processed datasets from cache
     if self._cache_dir and self._cache_dir.exists():
-        # Check if this is for the final model
+        # Final model caches under "final/"; standard runs cache at the root.
         if is_final_model:
-            # For final model, use the "final" directory
             final_dir = self._cache_dir / "final"
             train_dir = final_dir / "train"
             val_dir = final_dir / "val"
-            if final_dir.exists():
-                LOGGER.info(f"[DM] Looking for final model datasets in {final_dir}")
-            else:
-                LOGGER.info(f"[DM] Final model directory {final_dir} does not exist, will create it")
-        # Check if we're using cross-validation
-        elif self.cfg.num_folds > 1:
-            # Check if the fold directory exists
-            fold_dir = self._cache_dir / f"fold_{self.cfg.fold_idx}"
-            train_dir = fold_dir / "train"
-            val_dir = fold_dir / "val"
+            LOGGER.info(f"[DM] Looking for final model datasets in {final_dir}")
         else:
-            # No cross-validation, use the main directories
             train_dir = self._cache_dir / "train"
             val_dir = self._cache_dir / "val"
 
@@ -554,136 +543,71 @@ def process_data(self, df: pd.DataFrame, cfg: DataLoaderConfig,
     else:
         y_strat = y_all  # already categorical
 
-    # Train/validation/test split (stratified)
+    # Train/validation/test split
     LOGGER.info("[DM] Performing data split")
+    has_validation = True
     if cfg.predefined_split and cfg.split_col in df.columns:
-        tr_mask = df[cfg.split_col] == 0
-        va_mask = df[cfg.split_col] == 1
-        te_mask = df[cfg.split_col] == 2
-        
-        # Count unique bag IDs in each split for detailed logging
-        train_bags = set(df[tr_mask][cfg.bag_id_col].unique())
-        val_bags = set(df[va_mask][cfg.bag_id_col].unique())
-        test_bags = set(df[te_mask][cfg.bag_id_col].unique())
-        
-        LOGGER.info(f"[DM] Using predefined split from column '{cfg.split_col}'")
-        LOGGER.info(f"[DM] Predefined split details: {len(train_bags)} train bags, {len(val_bags)} validation bags, {len(test_bags)} test bags")
+        # Predefined split: 0=train, 1=val, 2=test.
+        df_train = df[df[cfg.split_col] == 0].copy()
+        df_val = df[df[cfg.split_col] == 1].copy()
+        df_test = df[df[cfg.split_col] == 2].copy()
 
-        # Verify the logic is correct
-        if cfg.num_folds > 1:
-            LOGGER.info("[DM] Predefined split logic: train bags (split=0) will be used for cross-validation, validation bags (split=1) will be ignored, test bags (split=2) will be the heldout test set")
-        else:
-            LOGGER.info("[DM] Predefined split logic: train bags (split=0) will be used for training, validation bags (split=1) will be used for validation, test bags (split=2) will be the heldout test set")
-    else:
-        sss = StratifiedShuffleSplit(n_splits=1, test_size=cfg.test_size, random_state=cfg.random_state)
-        train_idx, test_idx = next(sss.split(bag_ids_all, y_strat))
-        train_bags, test_bags = set(bag_ids_all[train_idx]), set(bag_ids_all[test_idx])
-        tr_mask = df[cfg.bag_id_col].isin(train_bags)
-        te_mask = df[cfg.bag_id_col].isin(test_bags)
-        LOGGER.info(f"[DM] Created stratified split with {len(train_bags)} train and {len(test_bags)} test bags")
-
-    # Create dataframes for each split
-    if cfg.predefined_split and cfg.split_col in df.columns:
-        # For predefined split with three categories (0=train, 1=val, 2=test)
-        df_train_orig = df[tr_mask].copy()
-        df_val_orig = df[va_mask].copy()
-        df_test = df[te_mask].copy()
-        
-        # If this is for the final model, combine train and validation data
         if is_final_model:
-            LOGGER.info("[DM] Final model training: combining train and validation data")
-            df_train = pd.concat([df_train_orig, df_val_orig], ignore_index=True)
-            df_val = pd.DataFrame(columns=df.columns)  # Empty DataFrame for validation
-            train_bags = set(df_train[cfg.bag_id_col].unique())
-            LOGGER.info(f"[DM] Final model: using {len(train_bags)} combined train+val bags for training")
+            # Final model: fit the scaler and train on train+val, keep test held out.
+            df_train = pd.concat([df_train, df_val], ignore_index=True)
+            df_val = df.iloc[0:0].copy()
+            has_validation = False
+            LOGGER.info(
+                "[DM] Predefined split (final): %d train+val bags, %d test bags",
+                df_train[cfg.bag_id_col].nunique(),
+                df_test[cfg.bag_id_col].nunique(),
+            )
         else:
-            # Normal training
-            if cfg.num_folds > 1:
-                # Perform CV only within predefined train (split==0); ignore predefined val (split==1)
-                LOGGER.info(f"[DM] Predefined split + CV: performing {cfg.num_folds}-fold CV within split=0 (ignoring split=1 for training)")
-                bag_ids_tr = df_train_orig[cfg.bag_id_col].unique()
-                y_tr = bag_to_lbl.loc[bag_ids_tr].to_numpy()
-                if cfg.task == "regression":
-                    y_tr_strat = pd.qcut(y_tr, q=cfg.n_strat_bins, labels=False, duplicates="drop")
-                else:
-                    y_tr_strat = y_tr
-                skf = StratifiedKFold(cfg.num_folds, shuffle=True, random_state=cfg.cv_seed)
-                splits = list(skf.split(bag_ids_tr, y_tr_strat))
-                tr_idx, va_idx = splits[cfg.fold_idx]
-                tr_bags_cv, va_bags_cv = set(bag_ids_tr[tr_idx]), set(bag_ids_tr[va_idx])
-                df_train = df_train_orig[df_train_orig[cfg.bag_id_col].isin(tr_bags_cv)]
-                df_val = df_train_orig[df_train_orig[cfg.bag_id_col].isin(va_bags_cv)]
-                LOGGER.info(f"[DM] Fold {cfg.fold_idx}: {len(tr_bags_cv)} train bags, {len(va_bags_cv)} validation bags (from split=0)")
-            else:
-                # Use predefined validation split as-is
-                df_train = df_train_orig
-                df_val = df_val_orig
-                LOGGER.info("[DM] Using predefined validation split")
+            LOGGER.info(
+                "[DM] Predefined split: %d train / %d val / %d test bags",
+                df_train[cfg.bag_id_col].nunique(),
+                df_val[cfg.bag_id_col].nunique(),
+                df_test[cfg.bag_id_col].nunique(),
+            )
     else:
-        # For random split (train/test only)
-        df_train_full, df_test = df[tr_mask].copy(), df[te_mask].copy()
-        
-        # k‑fold CV inside train (stratified)
-        if cfg.num_folds > 1:
-            LOGGER.info(f"[DM] Setting up {cfg.num_folds}-fold cross-validation (using fold {cfg.fold_idx})")
-            # derive bag‑level arrays again but only for train subset
-            bag_ids_tr = df_train_full[cfg.bag_id_col].unique()
-            y_tr = bag_to_lbl.loc[bag_ids_tr].to_numpy()
-            if cfg.task == "regression":
-                y_tr_strat = pd.qcut(y_tr, q=cfg.n_strat_bins, labels=False, duplicates="drop")
-            else:
-                y_tr_strat = y_tr
+        # No predefined split: carve a stratified test set, then optionally a val set.
+        sss = StratifiedShuffleSplit(
+            n_splits=1, test_size=cfg.test_size, random_state=cfg.seed
+        )
+        train_idx, test_idx = next(sss.split(bag_ids_all, y_strat))
+        train_bags = set(bag_ids_all[train_idx])
+        test_bags = set(bag_ids_all[test_idx])
+        df_train = df[df[cfg.bag_id_col].isin(train_bags)].copy()
+        df_test = df[df[cfg.bag_id_col].isin(test_bags)].copy()
 
-            skf = StratifiedKFold(cfg.num_folds, shuffle=True, random_state=cfg.cv_seed)
-            splits = list(skf.split(bag_ids_tr, y_tr_strat))
-            tr_idx, va_idx = splits[cfg.fold_idx]
-            tr_bags, va_bags = set(bag_ids_tr[tr_idx]), set(bag_ids_tr[va_idx])
-            
-            if is_final_model:
-                LOGGER.info("[DM] Final model training: combining train and validation folds")
-                # For final model, use all training data (combine train and val folds)
-                df_train = df_train_full
-                df_val = pd.DataFrame(columns=df.columns)  # Empty DataFrame for validation
-                LOGGER.info(f"[DM] Final model: using all {len(bag_ids_tr)} bags for training")
-            else:
-                df_train = df_train_full[df_train_full[cfg.bag_id_col].isin(tr_bags)]
-                df_val = df_train_full[df_train_full[cfg.bag_id_col].isin(va_bags)]
-                LOGGER.info(f"[DM] Fold {cfg.fold_idx}: {len(tr_bags)} train bags, {len(va_bags)} validation bags")
+        if is_final_model or not cfg.val_partition:
+            df_val = df.iloc[0:0].copy()
+            has_validation = False
+            LOGGER.info(
+                "[DM] Stratified split (no val): %d train / %d test bags",
+                len(train_bags),
+                len(test_bags),
+            )
         else:
-            LOGGER.info("[DM] No cross-validation (num_folds=1)")
-            
-            # Check if we should use a validation partition
-            if hasattr(cfg, 'val_partition') and cfg.val_partition:
-                if is_final_model:
-                    LOGGER.info("[DM] Final model training: using all training data (no validation split)")
-                    df_train = df_train_full
-                    df_val = pd.DataFrame(columns=df.columns)  # Empty DataFrame for validation
-                    train_bags = set(df_train[cfg.bag_id_col].unique())
-                    LOGGER.info(f"[DM] Final model: using all {len(train_bags)} bags for training")
-                else:
-                    LOGGER.info("[DM] Using validation partition (20% of training data)")
-                    # Create a validation split from the training data
-                    bag_ids_tr = df_train_full[cfg.bag_id_col].unique()
-                    y_tr = bag_to_lbl.loc[bag_ids_tr].to_numpy()
-                    
-                    if cfg.task == "regression":
-                        y_tr_strat = pd.qcut(y_tr, q=cfg.n_strat_bins, labels=False, duplicates="drop")
-                    else:
-                        y_tr_strat = y_tr
-                        
-                    # Use StratifiedShuffleSplit to create a validation set (20% of training data)
-                    sss = StratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=cfg.cv_seed)
-                    tr_idx, va_idx = next(sss.split(bag_ids_tr, y_tr_strat))
-                    tr_bags, va_bags = set(bag_ids_tr[tr_idx]), set(bag_ids_tr[va_idx])
-                    
-                    df_train = df_train_full[df_train_full[cfg.bag_id_col].isin(tr_bags)]
-                    df_val = df_train_full[df_train_full[cfg.bag_id_col].isin(va_bags)]
-                    
-                    LOGGER.info(f"[DM] Created validation split: {len(tr_bags)} train bags, {len(va_bags)} validation bags")
-            else:
-                LOGGER.info("[DM] Using all training data (no validation split)")
-                df_train = df_train_full
-                df_val = pd.DataFrame(columns=df.columns)  # Empty DataFrame for validation
+            bag_ids_tr = df_train[cfg.bag_id_col].unique()
+            y_tr = bag_to_lbl.loc[bag_ids_tr].to_numpy()
+            y_tr_strat = (
+                pd.qcut(y_tr, q=cfg.n_strat_bins, labels=False, duplicates="drop")
+                if cfg.task == "regression"
+                else y_tr
+            )
+            sss_val = StratifiedShuffleSplit(
+                n_splits=1, test_size=0.2, random_state=cfg.seed
+            )
+            tr_idx, va_idx = next(sss_val.split(bag_ids_tr, y_tr_strat))
+            df_val = df_train[df_train[cfg.bag_id_col].isin(set(bag_ids_tr[va_idx]))]
+            df_train = df_train[df_train[cfg.bag_id_col].isin(set(bag_ids_tr[tr_idx]))]
+            LOGGER.info(
+                "[DM] Stratified split: %d train / %d val / %d test bags",
+                df_train[cfg.bag_id_col].nunique(),
+                df_val[cfg.bag_id_col].nunique(),
+                len(test_bags),
+            )
 
     # Build datasets with progress reporting
     LOGGER.info("[DM] Building bags from instances")
@@ -691,15 +615,14 @@ def process_data(self, df: pd.DataFrame, cfg: DataLoaderConfig,
     tr_series_labels = self._build_bag_series_labels(
         df_train, cfg, tr_ids, "train"
     )
-    
-    # Only build validation bags if validation is enabled or using cross-validation
-    if (hasattr(cfg, 'val_partition') and cfg.val_partition) or cfg.num_folds > 1:
+
+    if has_validation:
         va_bags, va_y, va_ids = self._build_bags(df_val, cfg, "validation")
         va_series_labels = self._build_bag_series_labels(
             df_val, cfg, va_ids, "validation"
         )
     else:
-        LOGGER.info("[DM] Skipping validation split (val_partition=False)")
+        LOGGER.info("[DM] No validation set for this run")
         va_bags, va_y, va_ids = [], np.array([], dtype=np.float32), []
         va_series_labels = None
     
@@ -872,18 +795,12 @@ def process_data(self, df: pd.DataFrame, cfg: DataLoaderConfig,
     if self._cache_dir:
         LOGGER.info(f"[DM] Saving datasets to {self._cache_dir}")
 
-        # Get the fold index for cross-validation
-        fold_idx = cfg.fold_idx if cfg.num_folds > 1 else None
-
-        LOGGER.info(f"[DM] Process data parameters: fold_idx={fold_idx}, is_final_model={is_final_model}")
-
         # Save bags to disk and create path mappings
         LOGGER.info(f"[DM] Saving train bags to disk: {len(tr_bags)} bags, {len(tr_ids)} IDs")
         tr_file = self._save_bags_to_disk(
             tr_bags,
             tr_ids,
             "train",
-            fold_idx=fold_idx,
             is_final_model=is_final_model,
             cluster_ids=tr_cluster_ids,
             series_labels=tr_series_labels,
@@ -895,7 +812,6 @@ def process_data(self, df: pd.DataFrame, cfg: DataLoaderConfig,
                 va_bags,
                 va_ids,
                 "val",
-                fold_idx=fold_idx,
                 is_final_model=is_final_model,
                 cluster_ids=va_cluster_ids,
                 series_labels=va_series_labels,
@@ -935,10 +851,6 @@ def process_data(self, df: pd.DataFrame, cfg: DataLoaderConfig,
             test_dir = test_file.parent
             test_dir.mkdir(parents=True, exist_ok=True)
             LOGGER.info(f"[DM] Ensured test directory exists: {test_dir}")
-        elif fold_idx is not None:
-            train_file = self._cache_dir / f"fold_{fold_idx}" / "train" / "train.pkl"
-            val_file = self._cache_dir / f"fold_{fold_idx}" / "val" / "val.pkl" if va_bags else None
-            test_file = self._cache_dir / "test" / "test.pkl"
         else:
             train_file = self._cache_dir / "train" / "train.pkl"
             val_file = self._cache_dir / "val" / "val.pkl" if va_bags else None
@@ -957,7 +869,7 @@ def process_data(self, df: pd.DataFrame, cfg: DataLoaderConfig,
                 cache_dir=str(self._cache_dir),
                 memory_limit=self._memory_limit,
             )
-            # Only create validation dataset if val_partition is True or num_folds > 1
+            # Validation dataset only when validation bags exist
             val_dataset = (
                 MILDataset(
                     str(val_file),
@@ -968,7 +880,7 @@ def process_data(self, df: pd.DataFrame, cfg: DataLoaderConfig,
                     cache_dir=str(self._cache_dir),
                     memory_limit=self._memory_limit,
                 )
-                if val_file and (cfg.num_folds > 1 or (hasattr(cfg, 'val_partition') and cfg.val_partition))
+                if val_file and len(va_bags)
                 else None
             )
             test_dataset = MILDataset(
@@ -990,7 +902,7 @@ def process_data(self, df: pd.DataFrame, cfg: DataLoaderConfig,
                 cluster_ids=tr_cluster_ids,
                 series_labels=tr_series_labels,
             )
-            # Only create validation dataset if val_partition is True or num_folds > 1
+            # Validation dataset only when validation bags exist
             val_dataset = (
                 MILDataset(
                     va_bags,
@@ -999,7 +911,7 @@ def process_data(self, df: pd.DataFrame, cfg: DataLoaderConfig,
                     cluster_ids=va_cluster_ids,
                     series_labels=va_series_labels,
                 )
-                if len(va_bags) and (cfg.num_folds > 1 or (hasattr(cfg, 'val_partition') and cfg.val_partition))
+                if len(va_bags)
                 else None
             )
             test_dataset = MILDataset(
@@ -1019,7 +931,7 @@ def process_data(self, df: pd.DataFrame, cfg: DataLoaderConfig,
             cluster_ids=tr_cluster_ids,
             series_labels=tr_series_labels,
         )
-        # Only create validation dataset if val_partition is True or num_folds > 1
+        # Validation dataset only when validation bags exist
         val_dataset = (
             MILDataset(
                 va_bags,
@@ -1028,7 +940,7 @@ def process_data(self, df: pd.DataFrame, cfg: DataLoaderConfig,
                 cluster_ids=va_cluster_ids,
                 series_labels=va_series_labels,
             )
-            if len(va_bags) and (cfg.num_folds > 1 or (hasattr(cfg, 'val_partition') and cfg.val_partition))
+            if len(va_bags)
             else None
         )
         test_dataset = MILDataset(

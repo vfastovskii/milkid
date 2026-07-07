@@ -17,11 +17,11 @@ data:
   split_col: split
   series_col: Series
 
-  # split strategy
+  # split strategy (predefined split column: 0=train, 1=val, 2=test)
   predefined_split: true
-  test_size: 0.2
-  random_state: 42
+  test_size: 0.2  # only used when predefined_split=false
   n_strat_bins: 5
+  seed: 42
 
   # dataloader params
   batch_size: 16
@@ -38,11 +38,7 @@ data:
   cluster_linkage: average
   cluster_metric: euclidean
 
-  # cross-validation
-  num_folds: 1
-  fold_idx: 0
-  cv_seed: 42
-  val_partition: true  # Set to false to use all training data without validation split
+  val_partition: true  # only used when predefined_split=false
 
 model:
   template: bag_attention  # Specify which template to use
@@ -153,8 +149,8 @@ trainer:
   device: mps
   precision: "32-true"
   log_every_n_steps: 10  # Set to a lower value since we only have 37 training batches
-  log_save_dir: bace809_cluster_hier_mha_200c_2jul_bs16_test11_log #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_d_sc_fixlog
-  experiment_name: bace809_cluster_hier_mha_200c_2jul_bs16_test11 #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_double_scale_fix
+  log_save_dir: bace809_cluster_hier_mha_200c_2jul_bs16_test12_log #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_d_sc_fixlog
+  experiment_name: bace809_cluster_hier_mha_200c_2jul_bs16_test12 #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_double_scale_fix
   run_name: null
   tracking_uri: null
   log_per_epoch: false

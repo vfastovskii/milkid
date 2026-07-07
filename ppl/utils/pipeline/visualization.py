@@ -24,7 +24,7 @@ def log_split_distributions(dm: MILDataModule, *, stage: str):
     dm : MILDataModule
         Data module containing the data loaders
     stage : str
-        Stage name for the artifact path (e.g., 'fold0', 'final')
+        Stage name for the artifact path (e.g., 'train', 'final')
     """
     loader_map = {
         "train": dm.train_dataloader(),
@@ -35,7 +35,7 @@ def log_split_distributions(dm: MILDataModule, *, stage: str):
     fig, ax = plt.subplots()
     for split, dl in loader_map.items():
         if dl is None:
-            continue  # e.g. no val loader when num_folds == 1
+            continue  # e.g. no val loader for the final model
         values: List[np.ndarray] = []
         for batch in dl:
             # Standard tuple format: (bags, labels, bag_ids, padding_mask)

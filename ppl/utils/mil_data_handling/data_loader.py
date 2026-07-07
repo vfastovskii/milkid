@@ -153,7 +153,6 @@ class MILDataModule(pl.LightningDataModule):
         bags,
         bag_ids,
         split,
-        fold_idx=None,
         is_final_model=False,
         cluster_ids=None,
         series_labels=None,
@@ -166,7 +165,6 @@ class MILDataModule(pl.LightningDataModule):
             bag_ids,
             split,
             self._cache_dir,
-            fold_idx=fold_idx,
             is_final_model=is_final_model,
             cluster_ids=cluster_ids,
             cluster_config=(

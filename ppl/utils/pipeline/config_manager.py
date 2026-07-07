@@ -48,8 +48,7 @@ class PipelineConfigManager:
         self.model_cfg = None
         self.trainer_cfg = None
         self.task = None
-        self.num_folds = None
-        self.cv_seed = None
+        self.seed = None
         self.log_save_dir = None
 
         # Validate and configure
@@ -88,8 +87,7 @@ class PipelineConfigManager:
 
         # Extract commonly used values
         self.task: str = self.data_cfg.task.lower()
-        self.num_folds: int = self.data_cfg.num_folds
-        self.cv_seed: int = self.data_cfg.cv_seed
+        self.seed: int = self.data_cfg.seed
 
         # Set experiment_name from trainer config if available
         if hasattr(self.cfg.trainer, 'experiment_name') and self.cfg.trainer.experiment_name:
@@ -126,7 +124,7 @@ class PipelineConfigManager:
     def configure_reproducibility(self) -> None:
         """Configure deterministic behavior for reproducibility."""
         # Use the seed from data config or default to 42
-        seed = getattr(self.data_cfg, 'cv_seed', 42)
+        seed = getattr(self.data_cfg, 'seed', 42)
         LOGGER.info(f"Setting global seed to {seed}")
         set_deterministic(seed=seed)
 

@@ -12,30 +12,19 @@ from ppl.utils.pipeline.resource_manager import PipelineResourceManager
 LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.INFO)
 
-def validate_pipeline_configuration(task: str, num_folds: int) -> None:
+def validate_pipeline_configuration(task: str) -> None:
     """Validate critical configuration parameters.
 
     Parameters
     ----------
     task : str
         The task type (classification or regression)
-    num_folds : int
-        Number of cross-validation folds
 
     Raises
     ------
     ValueError
         If any configuration parameter has an invalid value
     """
-    # Validate num_folds
-    if not isinstance(num_folds, int):
-        raise ValueError(f"num_folds must be an integer, got {type(num_folds)}")
-    if num_folds < 1:
-        raise ValueError(f"num_folds must be at least 1, got {num_folds}")
-    if num_folds > 20:  # Arbitrary upper limit to prevent excessive computation
-        LOGGER.warning(f"num_folds is unusually high: {num_folds}")
-
-    # Validate task
     valid_tasks = ['classification', 'regression']
     if task not in valid_tasks:
         raise ValueError(f"task must be one of {valid_tasks}, got {task}")
@@ -53,17 +42,16 @@ def validate_pipeline_components(component_factory: PipelineComponentFactory) ->
     RuntimeError
         If any required component is missing
     """
-    required_attrs = ['model_trainer', 'model_cross_validator', 'model_evaluator']
+    required_attrs = ['model_trainer', 'split_trainer', 'model_evaluator']
     for attr in required_attrs:
         if not hasattr(component_factory, attr) or getattr(component_factory, attr) is None:
             raise RuntimeError(f"Component factory missing required attribute: {attr}")
 
 def initialize_pipeline_components(cfg: PipelineConfig) -> Tuple[
-    PipelineConfigManager, 
-    PipelineResourceManager, 
-    PipelineComponentFactory, 
-    str, 
-    int
+    PipelineConfigManager,
+    PipelineResourceManager,
+    PipelineComponentFactory,
+    str,
 ]:
     """Initialize all pipeline components.
 
@@ -74,13 +62,12 @@ def initialize_pipeline_components(cfg: PipelineConfig) -> Tuple[
 
     Returns
     -------
-    Tuple[PipelineConfigManager, PipelineResourceManager, PipelineComponentFactory, str, int]
+    Tuple[PipelineConfigManager, PipelineResourceManager, PipelineComponentFactory, str]
         Tuple containing the initialized components:
         - config_manager: The pipeline configuration manager
         - resource_manager: The pipeline resource manager
         - component_factory: The pipeline component factory
         - task: The task type (classification or regression)
-        - num_folds: Number of cross-validation folds
 
     Raises
     ------
@@ -94,10 +81,9 @@ def initialize_pipeline_components(cfg: PipelineConfig) -> Tuple[
 
     # Extract commonly used values
     task = config_manager.task
-    num_folds = config_manager.num_folds
 
     # Validate critical configuration parameters
-    validate_pipeline_configuration(task, num_folds)
+    validate_pipeline_configuration(task)
 
     # Initialize MLflow experiment logger
     try:
@@ -119,7 +105,7 @@ def initialize_pipeline_components(cfg: PipelineConfig) -> Tuple[
             trainer_cfg=config_manager.trainer_cfg,
             log_save_dir=config_manager.log_save_dir,
             task=config_manager.task,
-            cv_seed=config_manager.cv_seed,
+            seed=config_manager.seed,
         )
     except Exception as e:
         LOGGER.error(f"Failed to initialize PipelineComponentFactory: {str(e)}")
@@ -132,7 +118,7 @@ def initialize_pipeline_components(cfg: PipelineConfig) -> Tuple[
     validate_pipeline_components(component_factory)
     LOGGER.info("Pipeline components initialized successfully")
 
-    return config_manager, resource_manager, component_factory, task, num_folds
+    return config_manager, resource_manager, component_factory, task
 
 def cleanup_resources(components: list) -> None:
     """Clean up resources to prevent memory leaks.
