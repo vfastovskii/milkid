@@ -9,17 +9,17 @@ from __future__ import annotations
 import logging
 from typing import Any, Tuple
 
-from ppl.models.model_components_factory.embedders import (
+from ppl.models.components.embedders import (
     ContextualizedMLPEmbedder,
     MLPEmbedderV3,
 )
-from ppl.models.model_components_factory.aggregators import (
+from ppl.models.components.aggregators import (
     ClusterHierarchicalAttentionAggregator,
     MultiHeadAttentionAggregatorV4,
     MultiHeadAttentionAggregatorV5,
     VITAggregator,
 )
-from ppl.models.model_components_factory.predictors import MLPPredictorV3
+from ppl.models.components.predictors import MLPPredictorV3
 
 LOGGER = logging.getLogger(__name__)
 

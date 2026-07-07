@@ -33,7 +33,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ppl.models.model_components_factory.embedders.base_embedder import (
+from ppl.models.components.embedders.base_embedder import (
     EmbedderBase,
 )
 

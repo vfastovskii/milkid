@@ -14,10 +14,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ppl.models.model_components_factory.embedders.base_embedder import (
+from ppl.models.components.embedders.base_embedder import (
     EmbedderBase,
 )
-from ppl.models.model_components_factory.embedders.mlp_embedder_v3 import (
+from ppl.models.components.embedders.mlp_embedder_v3 import (
     DropPath,
     MLPEmbedderV3,
 )
