@@ -14,10 +14,10 @@ DEFAULT_SEED = 42  # Fixed seed for reproducibility
 def get_default_config_path() -> Path:
     """Get the default configuration path."""
     try:
-        return Path(__file__).parent.parent.parent / "utils/experiment_configs/nos_regression_experiment_config.yaml"
+        return Path(__file__).parent.parent.parent / "utils/experiment_configs/run_config.yaml"
     except NameError:
         # Fallback if __file__ is not available
-        return Path.cwd() / "utils/experiment_configs/nos_regression_experiment_config.yaml"
+        return Path.cwd() / "utils/experiment_configs/run_config.yaml"
 
 DEFAULT_CONFIG_PATH = get_default_config_path()
 

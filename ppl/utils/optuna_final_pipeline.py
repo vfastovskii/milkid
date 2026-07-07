@@ -687,7 +687,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--base-config",
-        default="ppl/utils/experiment_configs/nos_regression_experiment_config.yaml",
+        default="ppl/utils/experiment_configs/run_config.yaml",
     )
     parser.add_argument("--data-dir", default=None)
     parser.add_argument("--data-csv", default=None)

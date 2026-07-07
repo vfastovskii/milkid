@@ -80,7 +80,7 @@ PKGDIR="${PKGDIR:-${REPO_DIR}/ppl}"
 DATA_DIR="${DATA_DIR:-${PKGDIR}/data}"
 DATA_CSV="${DATA_CSV:-${DATA_DIR}/bace809_3d_fp_5fp_200c_05prune_6kcal_no_Hs_june_concated_splited.csv}"
 
-BASE_CONFIG="${BASE_CONFIG:-${PKGDIR}/utils/experiment_configs/nos_regression_experiment_config.yaml}"
+BASE_CONFIG="${BASE_CONFIG:-${PKGDIR}/utils/experiment_configs/run_config.yaml}"
 SEARCH_SPACE="${SEARCH_SPACE:-${PKGDIR}/utils/experiment_configs/optuna_search_space_bace809_cluster_hier_mha.yaml}"
 
 # -------------------- run knobs --------------------
@@ -187,7 +187,7 @@ python3 -c "import ppl; print('[INFO] ppl import OK from', ppl.__file__)"
 CMD=(
   python3 -m ppl.utils.optuna_final_pipeline
   --search-space "$WORKDIR/ppl/utils/experiment_configs/optuna_search_space_bace809_cluster_hier_mha.yaml"
-  --base-config "$WORKDIR/ppl/utils/experiment_configs/nos_regression_experiment_config.yaml"
+  --base-config "$WORKDIR/ppl/utils/experiment_configs/run_config.yaml"
   --data-csv "$DATA_CSV_LOCAL"
   --output-dir "$STUDY_DIR"
   --trial-root "$STUDY_DIR/trials"
