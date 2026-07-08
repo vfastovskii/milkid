@@ -40,7 +40,7 @@ class ModelTrainer:
     ----------
     model_cfg : ModelBuilderConfig
         Configuration for model building
-    trainer_cfg : ModelTrainerConfig
+    trainer_cfg : TrainerConfig
         Configuration for model training
     log_save_dir : Path
         Directory to save logs

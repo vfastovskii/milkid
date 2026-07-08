@@ -34,16 +34,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                 "Example usage:\n"
                 "  $ poetry run milk                            # uses default config and INFO log-level\n"
                 "  $ poetry run milk -c path/to/config.yaml     # run with custom config\n"
-                "  $ poetry run milk --list-use-cases           # list available use cases\n"
                 "  $ poetry run milk --log-level DEBUG          # enable debug-level logging\n"
             ),
             formatter_class=argparse.RawTextHelpFormatter,
         )
-        
-        # Create a mutually exclusive group for config file or list-use-cases
-        config_group = parser.add_mutually_exclusive_group()
-        
-        config_group.add_argument(
+
+        parser.add_argument(
             "-c", "--config",
             dest="ppl_cfg_path",
             type=Path,
@@ -52,13 +48,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                 f"Defaults to '{DEFAULT_CONFIG_PATH.relative_to(Path.cwd())}'."
             ),
         )
-        
-        config_group.add_argument(
-            "--list-use-cases",
-            action="store_true",
-            help="List available use cases and exit.",
-        )
-        
+
         parser.add_argument(
             "--log-level",
             default="INFO",
@@ -70,11 +60,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         )
         
         args = parser.parse_args(argv)
-        
-        # Set default config path if not specified and not listing use cases
-        if not args.ppl_cfg_path and not args.list_use_cases:
+
+        # Set default config path if not specified
+        if not args.ppl_cfg_path:
             args.ppl_cfg_path = DEFAULT_CONFIG_PATH
-            
+
         return args
     except Exception as e:
         logging.error("Failed to parse arguments: %s", e)

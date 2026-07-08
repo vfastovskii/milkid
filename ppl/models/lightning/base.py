@@ -9,7 +9,7 @@ import traceback
 import pytorch_lightning as pl
 import torchmetrics as tm
 
-from ppl.models.adaptive_entropic_loss import AdaptiveEntropicLoss
+from ppl.models.loss import Loss
 from ppl.config.trainer_optim_config import TrainerOptimConfig
 from ppl.models.core import MILCore
 from ppl.models.gradient_tracking import GradientTracker
@@ -82,7 +82,7 @@ class MILModelLightningWrapper(
 
         # Loss: pure supervised objective; attention diagnostics stay out of loss.
         try:
-            self.criterion = AdaptiveEntropicLoss(task=self.task)
+            self.criterion = Loss(task=self.task)
         except Exception as e:
             LOGGER.error(f"Failed to initialize loss function: {e}")
             LOGGER.error(traceback.format_exc())

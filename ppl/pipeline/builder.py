@@ -143,15 +143,3 @@ def build_pipeline_from_config(yaml_path: str | Path) -> "PipelineOrchestrator":
     except Exception as e:
         LOGGER.error(f"Unexpected error building pipeline: {e}")
         raise
-
-
-def list_available_use_cases() -> list[str]:
-    """List all available use cases.
-
-    Returns
-    -------
-    list[str]
-        List of available use case names
-    """
-    from ppl.config.config_registry import ConfigRegistry
-    return ConfigRegistry.list_use_cases()

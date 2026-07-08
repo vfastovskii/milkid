@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 
 from ppl.pipeline.orchestrator import PipelineOrchestrator
-from ppl.pipeline.builder import build_pipeline_from_config, list_available_use_cases
+from ppl.pipeline.builder import build_pipeline_from_config
 
 from ppl.cli.pipeline_setup_utils import DEFAULT_SEED, configure_logging
 from ppl.utils.reproducibility import (
@@ -57,15 +57,7 @@ def execute_pipeline(args: argparse.Namespace) -> None:
     """
     try:
         configure_logging(args.log_level)
-        
-        # Handle --list-use-cases option
-        if hasattr(args, 'list_use_cases') and args.list_use_cases:
-            use_cases = list_available_use_cases()
-            print("Available use cases:")
-            for use_case in use_cases:
-                print(f"  - {use_case}")
-            return
-        
+
         set_deterministic(seed=DEFAULT_SEED)
         check_determinism()
 

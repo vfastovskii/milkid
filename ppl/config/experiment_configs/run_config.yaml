@@ -1,6 +1,5 @@
 # Task
 task: regression
-use_case: confs
 
 data:
   csv_path: ppl/data/bace809_3d_fp_5fp_200c_05prune_6kcal_no_Hs_june_concated_splited.csv

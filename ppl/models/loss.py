@@ -1,25 +1,23 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict
 
 import torch
 import torch.nn as nn
 
-__all__ = ["AdaptiveEntropicLoss", "SupervisedLoss"]
+__all__ = ["Loss"]
 
 LOGGER = logging.getLogger(__name__)
 
 
-class SupervisedLoss(nn.Module):
-    """Pure supervised MIL loss.
+class Loss(nn.Module):
+    """The model's loss.
 
-    The historical ``AdaptiveEntropicLoss`` name is kept as an alias for
-    compatibility, but the loss no longer uses attention entropy, KL, or any
-    aggregator extras. Regression uses MSE; classification uses BCEWithLogits.
+    Regression uses MSE; classification uses BCEWithLogits. Attention/aggregator
+    regularizers (e.g. cluster compactness) are added by the caller, not here.
     """
 
-    def __init__(self, *, task: str = "regression", **_: object) -> None:
+    def __init__(self, *, task: str = "regression") -> None:
         super().__init__()
         self.task = task.lower()
         if self.task == "classification":
@@ -29,14 +27,7 @@ class SupervisedLoss(nn.Module):
         else:
             raise ValueError(task)
 
-    def forward(
-        self,
-        y_hat: torch.Tensor,
-        y_raw: torch.Tensor,
-        extras: Dict | None = None,
-    ) -> torch.Tensor:
-        del extras
-
+    def forward(self, y_hat: torch.Tensor, y_raw: torch.Tensor) -> torch.Tensor:
         y_raw = y_raw.to(device=y_hat.device, dtype=y_hat.dtype)
 
         if not torch.isfinite(y_hat).all():
@@ -53,6 +44,3 @@ class SupervisedLoss(nn.Module):
         if not torch.isfinite(loss).all():
             raise FloatingPointError("Non-finite supervised loss")
         return loss
-
-
-AdaptiveEntropicLoss = SupervisedLoss

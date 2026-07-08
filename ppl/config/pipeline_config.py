@@ -1,80 +1,50 @@
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 import yaml
 
 from ppl.config.data_loader_config import DataLoaderConfig
 from ppl.config.model_builder_config import ModelBuilderConfig
 from ppl.config.trainer_config import TrainerConfig
-from ppl.config.config_registry import ConfigRegistry
 
 LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(slots=True, frozen=False)
 class PipelineConfig:
-    """Main pipeline configuration with use case support."""
-    
-    # Core configuration sections
-    data: Optional[DataLoaderConfig] = None
-    model: Optional[ModelBuilderConfig] = None
-    trainer: Optional[TrainerConfig] = None
-    
-    # Use case support
-    use_case: Optional[str] = None
-    
-    def __post_init__(self):
-        """Initialize use case-specific configurations."""
-        if self.use_case:
-            self._setup_use_case_configs()
-    
-    def _setup_use_case_configs(self):
-        """Set up use case-specific configurations."""
-        # Create configurations using the registry
-        if not self.data:
-            # We need to extract csv_path from the raw YAML data
-            # This is a temporary workaround until we have a better solution
-            try:
-                # Try to get the path from the current working directory
-                import os
-                from pathlib import Path
-                default_csv_path = Path(os.getcwd()) / "ppl/data/trypsin_usrcat.csv"
-                self.data = ConfigRegistry.create_config(self.use_case, "data_loader", csv_path=default_csv_path)
-                LOGGER.info(f"Using default csv_path: {default_csv_path}")
-            except Exception as e:
-                LOGGER.error(f"Failed to create data loader config: {e}")
-                raise ValueError(f"csv_path is required for data loader configuration") from e
-        
-        if not self.model:
-            self.model = ConfigRegistry.create_config(self.use_case, "model_builder")
-        
-        if not self.trainer:
-            self.trainer = ConfigRegistry.create_config(self.use_case, "model_trainer")
+    """Top-level pipeline configuration: ``data``, ``model``, and ``trainer``."""
+
+    data: DataLoaderConfig
+    model: ModelBuilderConfig
+    trainer: TrainerConfig
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "PipelineConfig":
-        """Load configuration from a YAML file with validation.
+        """Load and validate configuration from a YAML file.
+
+        The file must define ``data``, ``model``, and ``trainer`` sections. An
+        optional top-level ``optim`` block is folded into ``model``.
 
         Parameters
         ----------
         path : str | Path
-            Path to the YAML configuration file
+            Path to the YAML configuration file.
 
         Returns
         -------
         PipelineConfig
-            A validated pipeline configuration object
+            A validated pipeline configuration object.
 
         Raises
         ------
         FileNotFoundError
-            If the configuration file does not exist
+            If the configuration file does not exist.
         ValueError
-            If the configuration is invalid or missing required fields
+            If the configuration is invalid or missing required sections.
         yaml.YAMLError
-            If the YAML file is malformed
+            If the YAML file is malformed.
         """
         path_obj = Path(path)
         if not path_obj.exists():
@@ -87,70 +57,29 @@ class PipelineConfig:
             LOGGER.error(f"Failed to parse YAML file {path}: {e}")
             raise
 
-        # Check if use_case is specified
-        use_case = raw.get("use_case")
-        
-        # If use_case is specified, we don't require all sections
-        if use_case:
-            # Create a config with the use case
-            config = cls(use_case=use_case)
-            
-            # If specific sections are provided, override the use case defaults
-            if "data" in raw:
-                config.data = cls._create_data_config(raw["data"])
-            if "model" in raw:
-                config.model = cls._create_model_config(raw["model"])
-            if "trainer" in raw:
-                config.trainer = cls._create_trainer_config(raw["trainer"])
-                
-            # Validate inter-dependent configuration parameters
-            cls._validate_config_compatibility(config.data, config.model, config.trainer)
-            
-            return config
-        else:
-            # Traditional approach - validate required top-level sections
-            required_sections = ["data", "model", "trainer"]
-            missing_sections = [section for section in required_sections if section not in raw]
-            if missing_sections:
-                raise ValueError(f"Missing required configuration sections: {missing_sections}")
+        if not isinstance(raw, dict):
+            raise ValueError(f"Configuration file {path} must contain a top-level mapping")
 
-            # If an `optim:` block exists at the top level, move it under `model`
-            if "optim" in raw:
-                raw.setdefault("model", {})["optim"] = raw.pop("optim")
+        # If an `optim:` block exists at the top level, move it under `model`.
+        if "optim" in raw:
+            raw.setdefault("model", {})["optim"] = raw.pop("optim")
 
-            try:
-                # Create configuration objects with validation
-                data_config = cls._create_data_config(raw["data"])
-                model_config = cls._create_model_config(raw["model"])
-                trainer_config = cls._create_trainer_config(raw["trainer"])
+        required_sections = ["data", "model", "trainer"]
+        missing_sections = [s for s in required_sections if s not in raw]
+        if missing_sections:
+            raise ValueError(f"Missing required configuration sections: {missing_sections}")
 
-                # Validate inter-dependent configuration parameters
-                cls._validate_config_compatibility(data_config, model_config, trainer_config)
+        try:
+            data_config = cls._create_data_config(raw["data"])
+            model_config = cls._create_model_config(raw["model"])
+            trainer_config = cls._create_trainer_config(raw["trainer"])
 
-                return cls(
-                    data=data_config,
-                    model=model_config,
-                    trainer=trainer_config,
-                )
-            except (ValueError, TypeError, KeyError) as e:
-                LOGGER.error(f"Invalid configuration in {path}: {e}")
-                raise ValueError(f"Configuration validation failed: {e}") from e
-                
-    @classmethod
-    def from_use_case(cls, use_case: str) -> "PipelineConfig":
-        """Create configuration directly from use case.
-        
-        Parameters
-        ----------
-        use_case : str
-            Use case identifier
-            
-        Returns
-        -------
-        PipelineConfig
-            A pipeline configuration object for the specified use case
-        """
-        return cls(use_case=use_case)
+            cls._validate_config_compatibility(data_config, model_config, trainer_config)
+
+            return cls(data=data_config, model=model_config, trainer=trainer_config)
+        except (ValueError, TypeError, KeyError) as e:
+            LOGGER.error(f"Invalid configuration in {path}: {e}")
+            raise ValueError(f"Configuration validation failed: {e}") from e
 
     @staticmethod
     def _create_data_config(data_config: Dict[str, Any]) -> DataLoaderConfig:
@@ -178,9 +107,9 @@ class PipelineConfig:
 
     @staticmethod
     def _validate_config_compatibility(
-        data_config: DataLoaderConfig, 
-        model_config: ModelBuilderConfig, 
-        trainer_config: TrainerConfig
+        data_config: DataLoaderConfig,
+        model_config: ModelBuilderConfig,
+        trainer_config: TrainerConfig,
     ) -> None:
         """Validate compatibility between different configuration components."""
         # Ensure task is consistent across configurations

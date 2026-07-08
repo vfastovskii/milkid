@@ -110,8 +110,7 @@ poetry run milk
 # run with a custom config
 poetry run milk -c path/to/your_config.yaml
 
-# list available use cases / verbose logging
-poetry run milk --list-use-cases
+# verbose logging
 poetry run milk --log-level DEBUG
 ```
 

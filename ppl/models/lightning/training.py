@@ -1001,7 +1001,7 @@ class TrainingMethods(nn.Module):
                         _finite_summary("y", y),
                         _finite_summary("logit", logit),
                     )
-                loss = self.criterion(logit, y, extras)
+                loss = self.criterion(logit, y)
                 reg_loss = extras.get("reg_loss")
                 if reg_loss is not None:
                     if isinstance(reg_loss, torch.Tensor):
