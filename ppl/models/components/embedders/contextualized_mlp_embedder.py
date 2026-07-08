@@ -17,9 +17,9 @@ import torch.nn.functional as F
 from ppl.models.components.embedders.base_embedder import (
     EmbedderBase,
 )
-from ppl.models.components.embedders.mlp_embedder_v3 import (
+from ppl.models.components.embedders.mlp_embedder import (
     DropPath,
-    MLPEmbedderV3,
+    MLPEmbedder,
 )
 
 
@@ -220,7 +220,7 @@ class ContextualizedMLPEmbedder(EmbedderBase):
                 f"embed_dim={self.embed_dim} must be divisible by num_heads={self.num_heads}"
             )
 
-        self.local_embedder = MLPEmbedderV3(
+        self.local_embedder = MLPEmbedder(
             input_dim=self._input_dim,
             hidden_dim=self.embed_dim,
             num_layers=self.num_mlp_layers,

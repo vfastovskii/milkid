@@ -8,9 +8,9 @@ from ppl.config.trainer_optim_config import TrainerOptimConfig
 @dataclass(slots=True, frozen=False)
 class ModelBuilderConfig:
     # Model Components
-    embedder_type: str = "contextualized_mlp_embedder_v1"
-    aggregator_type: str = "cluster_hier_mha_v1"
-    predictor_type: str = "mlp_predictor_v3"
+    embedder_type: str = "contextualized_mlp_embedder"
+    aggregator_type: str = "cluster_hier_mha"
+    predictor_type: str = "mlp_predictor"
     # Injected from the processed data feature count before model construction.
     input_dim: int | None = None
     task: str = "regression"

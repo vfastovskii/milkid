@@ -154,7 +154,7 @@ class _ResFFNBlock(nn.Module):
         return shortcut + y
 
 
-class MLPPredictorV3(PredictorBase):
+class MLPPredictor(PredictorBase):
     r"""
     Residual MLP predictor for MIL bag-level outputs.
 

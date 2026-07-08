@@ -41,9 +41,9 @@ data:
   val_partition: true  # only used when predefined_split=false
 
 model:
-  embedder_type: contextualized_mlp_embedder_v1
-  aggregator_type: cluster_hier_mha_v1
-  predictor_type: mlp_predictor_v3
+  embedder_type: contextualized_mlp_embedder
+  aggregator_type: cluster_hier_mha
+  predictor_type: mlp_predictor
   task: regression
   embedder_kwargs:
     embed_dim: 512 # test9 paper 256

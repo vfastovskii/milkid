@@ -9,37 +9,23 @@ from __future__ import annotations
 import logging
 from typing import Any, Tuple
 
-from ppl.models.components.embedders import (
-    ContextualizedMLPEmbedder,
-    MLPEmbedderV3,
-)
-from ppl.models.components.aggregators import (
-    ClusterHierarchicalAttentionAggregator,
-    MultiHeadAttentionAggregatorV4,
-    MultiHeadAttentionAggregatorV5,
-    VITAggregator,
-)
-from ppl.models.components.predictors import MLPPredictorV3
+from ppl.models.components.embedders import ContextualizedMLPEmbedder
+from ppl.models.components.aggregators import ClusterHierarchicalAttentionAggregator
+from ppl.models.components.predictors import MLPPredictor
 
 LOGGER = logging.getLogger(__name__)
 
 # name -> class. Names are matched case-insensitively.
 EMBEDDERS = {
     "contextualized_mlp_embedder": ContextualizedMLPEmbedder,
-    "contextualized_mlp_embedder_v1": ContextualizedMLPEmbedder,
-    "mlp_embedder_v3": MLPEmbedderV3,
 }
 
 AGGREGATORS = {
     "cluster_hier_mha": ClusterHierarchicalAttentionAggregator,
-    "cluster_hier_mha_v1": ClusterHierarchicalAttentionAggregator,
-    "mha_att_v4": MultiHeadAttentionAggregatorV4,
-    "mha_v5": MultiHeadAttentionAggregatorV5,
-    "vit_aggregator": VITAggregator,
 }
 
 PREDICTORS = {
-    "mlp_predictor_v3": MLPPredictorV3,
+    "mlp_predictor": MLPPredictor,
 }
 
 COMPONENT_ORDER: Tuple[str, str, str] = ("embedder", "aggregator", "predictor")

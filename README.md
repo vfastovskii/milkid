@@ -68,11 +68,11 @@ flowchart LR
 The three components are chosen by name in the config and instantiated directly from a small
 catalog (`ppl/models/component_catalog.py`) — no template/registry indirection.
 
-| Slot | Config key | Available (default in **bold**) |
-|------|------------|----------------------------------|
-| Embedder | `embedder_type` | **contextualized_mlp_embedder_v1**, mlp_embedder_v3 |
-| Aggregator | `aggregator_type` | **cluster_hier_mha_v1**, mha_v5, mha_att_v4, vit_aggregator |
-| Predictor | `predictor_type` | **mlp_predictor_v3** |
+| Slot | Config key | Value |
+|------|------------|-------|
+| Embedder | `embedder_type` | `contextualized_mlp_embedder` |
+| Aggregator | `aggregator_type` | `cluster_hier_mha` |
+| Predictor | `predictor_type` | `mlp_predictor` |
 
 ---
 
@@ -122,7 +122,7 @@ Config: run_config.yaml
 Experiment: my_experiment
 Preparing data…
 Data ready: 647 train / 324 val / 0 test bags · 472 features
-Model: contextualized_mlp_embedder_v1 → cluster_hier_mha_v1 → mlp_predictor_v3 (13.0M params)
+Model: contextualized_mlp_embedder → cluster_hier_mha → mlp_predictor (13.0M params)
 Training up to 100 epochs on mps…
 Epoch 0 · train rmse 6.579 mae 6.478 · val rmse 6.761 mae 6.663
 Epoch 1 · train rmse 6.155 mae 6.046 · val rmse 6.181 mae 6.075
@@ -169,9 +169,9 @@ data:
 ### `model`
 ```yaml
 model:
-  embedder_type: contextualized_mlp_embedder_v1
-  aggregator_type: cluster_hier_mha_v1
-  predictor_type: mlp_predictor_v3
+  embedder_type: contextualized_mlp_embedder
+  aggregator_type: cluster_hier_mha
+  predictor_type: mlp_predictor
   task: regression
   embedder_kwargs:   { ... }   # per-component hyperparameters
   aggregator_kwargs: { ... }

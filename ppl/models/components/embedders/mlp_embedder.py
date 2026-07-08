@@ -7,7 +7,7 @@ Transformer-style residual MLP embedder for MIL instance embeddings.
 This module defines:
 
 - DropPath      : per-sample stochastic depth (used inside residual blocks)
-- MLPEmbedderV3 : a token-wise (instance-wise) gated MLP stack that mimics the
+- MLPEmbedder   : a token-wise (instance-wise) gated MLP stack that mimics the
                   feed-forward (FFN) sublayer of a Transformer encoder.
 
 Design goals
@@ -97,7 +97,7 @@ class DropPath(nn.Module):
         return x.div(keep_prob) * mask
 
 
-class MLPEmbedderV3(EmbedderBase):
+class MLPEmbedder(EmbedderBase):
     r"""
     Transformer-style residual MLP embedder for MIL instance embeddings.
 
