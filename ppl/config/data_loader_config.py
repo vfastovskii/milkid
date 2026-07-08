@@ -1,7 +1,7 @@
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional
 
 
 @dataclass(slots=True, frozen=False)
@@ -44,11 +44,7 @@ class DataLoaderConfig:
     cluster_linkage: str = "average"
     cluster_metric: str = "euclidean"
 
-    # memory management and caching
-    cache_dir: Optional[Union[Path, str]] = None  # directory to cache processed bags
-    memory_limit: Optional[float] = None  # maximum memory usage in GB
-    on_demand_loading: bool = False  # load bags from disk when needed
-    experiment_name: Optional[str] = None  # experiment name for saving splits and models
+    experiment_name: Optional[str] = None  # experiment name for saving results/models
 
     # when predefined_split=False, carve a stratified validation set out of train
     val_partition: bool = True

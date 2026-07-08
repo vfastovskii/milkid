@@ -82,6 +82,8 @@ class SplitTrainer:
             "Data ready: %d train / %d val / %d test bags · %d features",
             _n(dm._train), _n(dm._val), _n(dm._test), len(dm.feature_names),
         )
+        if self.experiment_name:
+            self._save_preprocessing(dm)
 
         log_split_distributions(dm, stage="train")
         logger = create_mlflow_logger(
@@ -98,6 +100,29 @@ class SplitTrainer:
                 "Results saved to %s", create_results_directory(self.experiment_name)
             )
         return metrics
+
+    def _save_preprocessing(self, dm) -> None:
+        """Persist fitted scalers + feature layout so preprocessing is reproducible.
+
+        The saved ``preprocessing.joblib`` (per-fingerprint-block StandardScalers,
+        the retained-feature mask, and descriptor column order) lets you apply the
+        exact same transform to new conformers without re-fitting.
+        """
+        try:
+            import joblib
+
+            results_dir = create_results_directory(self.experiment_name)
+            payload = {
+                "scaler": getattr(dm, "scaler", None),
+                "feature_names": list(getattr(dm, "feature_names", [])),
+                "feature_mask": getattr(dm, "feature_mask", None),
+                "descriptor_cols": list(getattr(dm.cfg, "descriptor_cols", []) or []),
+            }
+            path = results_dir / "preprocessing.joblib"
+            joblib.dump(payload, path)
+            logging.getLogger("milk").info("Saved preprocessing (scalers) to %s", path)
+        except Exception as e:
+            LOGGER.warning("Failed to save preprocessing artifacts: %s", e)
 
     def _export_plots(self, dm: MILDataModule) -> None:
         """Export attention-weight and true-vs-predicted plots for train/val."""

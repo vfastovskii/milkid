@@ -1,45 +1,29 @@
-"""PyTorch Dataset for multiple-instance learning (MIL).
-
-This module provides the MILDataset class for handling multiple-instance learning data.
-It supports both in-memory and on-demand loading modes to optimize memory usage.
-"""
+"""In-memory PyTorch Dataset for multiple-instance learning (MIL)."""
 from __future__ import annotations
 
 import logging
-import pickle
-import time
 from typing import Dict, Optional, Sequence, Union
 
 import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from ppl.data.data_loader_impl import manage_cache
-
 LOGGER = logging.getLogger(__name__)
 
 
 class MILDataset(Dataset):
-    """torch Dataset for Multiple Instance Learning.
-
-    This dataset supports both in-memory and on-demand loading modes.
-    In on-demand mode, bags are loaded from the disk when needed, reducing memory usage.
+    """In-memory torch Dataset for Multiple Instance Learning.
 
     Parameters
     ----------
-    bags : Sequence[np.ndarray] or Dict[str, str] or str
-        Either a sequence of numpy arrays (in-memory mode), a dictionary mapping
-        bag IDs to file paths (on-demand mode), or a single file path containing all bags
+    bags : Sequence[np.ndarray]
+        A sequence of per-bag instance arrays.
     labels : np.ndarray
-        Labels for each bag
+        Label for each bag.
     bag_ids : Sequence[str]
-        Unique identifiers for each bag
+        Unique identifier for each bag.
     dtype : torch.dtype
-        Data type for tensors
-    cache_dir : Optional[str]
-        Directory to cache processed bags (only used in on-demand mode)
-    memory_limit : Optional[float]
-        Maximum memory usage in GB (only used in on-demand mode)
+        Data type for the bag tensors.
     """
 
     def __init__(
@@ -51,8 +35,6 @@ class MILDataset(Dataset):
         cluster_ids: Optional[Sequence[np.ndarray]] = None,
         series_labels: Optional[Sequence[str]] = None,
         dtype: torch.dtype = torch.float32,
-        cache_dir: Optional[str] = None,
-        memory_limit: Optional[float] = None,
     ) -> None:
         self.dtype = dtype
         self._bag_ids = list(bag_ids)
@@ -68,130 +50,33 @@ class MILDataset(Dataset):
         else:
             self._series_labels = None
 
-        # Determine if we're in in-memory or on-demand mode
-        self._on_demand = isinstance(bags, dict) or isinstance(bags, str)
-        self._single_file_mode = isinstance(bags, str)
+        if isinstance(bags, (dict, str)):
+            raise TypeError(
+                "MILDataset is in-memory only; pass a sequence of bag arrays "
+                "(disk caching was removed)."
+            )
 
-        if self._on_demand:
-            # On-demand mode: store file paths
-            self._bag_paths = bags
-            self._cache = {}  # Cache for frequently accessed bags
-            self._cache_dir = cache_dir
-            self._memory_limit = memory_limit or 4.0  # Default 4GB limit
-            self._last_access = {}  # Track when bags were last accessed
-
-            if self._single_file_mode:
-                LOGGER.info(f"MILDataset initialized in single-file mode with {len(bag_ids)} bags")
-                # Load the data dictionary once to get the bag_ids mapping
-                try:
-                    with open(self._bag_paths, 'rb') as f:
-                        data = pickle.load(f)
-                    self._file_bag_ids = data["bag_ids"]
-                    self._file_cluster_ids = data.get("cluster_ids")
-                    file_series_labels = data.get("series_labels")
-                    self._has_cluster_ids = self._file_cluster_ids is not None
-                    if self._series_labels is None and file_series_labels is not None:
-                        self._series_labels = [
-                            str(label) for label in file_series_labels
-                        ]
-                    # Create a mapping from bag_id to index in the file
-                    self._bag_id_to_idx = {bag_id: i for i, bag_id in enumerate(self._file_bag_ids)}
-                    LOGGER.info(f"Loaded bag_ids mapping from {self._bag_paths}")
-                except Exception as e:
-                    LOGGER.error(f"Error loading bag_ids mapping from {self._bag_paths}: {e}")
-                    self._file_bag_ids = []
-                    self._bag_id_to_idx = {}
-            else:
-                LOGGER.info(f"MILDataset initialized in on-demand mode with {len(bag_ids)} bags")
-        else:
-            # In-memory mode: convert all bags to tensors
-            start_time = time.time()
-            LOGGER.info(f"Converting {len(bags)} bags to tensors...")
-            self._bags = [torch.as_tensor(b, dtype=dtype) for b in bags]
-            if cluster_ids is not None:
-                if len(cluster_ids) != len(self._bags):
+        # In-memory mode: convert all bags to tensors.
+        self._bags = [torch.as_tensor(b, dtype=dtype) for b in bags]
+        if cluster_ids is not None:
+            if len(cluster_ids) != len(self._bags):
+                raise ValueError(
+                    "cluster_ids length must match number of bags: "
+                    f"{len(cluster_ids)} != {len(self._bags)}"
+                )
+            self._cluster_ids = [
+                torch.as_tensor(c, dtype=torch.long) for c in cluster_ids
+            ]
+            for bag_id, bag, clusters in zip(
+                self._bag_ids, self._bags, self._cluster_ids
+            ):
+                if clusters.dim() != 1 or clusters.size(0) != bag.size(0):
                     raise ValueError(
-                        "cluster_ids length must match number of bags: "
-                        f"{len(cluster_ids)} != {len(self._bags)}"
+                        f"Cluster IDs for bag {bag_id} must have shape "
+                        f"[{bag.size(0)}], got {tuple(clusters.shape)}"
                     )
-                self._cluster_ids = [
-                    torch.as_tensor(c, dtype=torch.long) for c in cluster_ids
-                ]
-                for bag_id, bag, clusters in zip(
-                    self._bag_ids,
-                    self._bags,
-                    self._cluster_ids,
-                ):
-                    if clusters.dim() != 1 or clusters.size(0) != bag.size(0):
-                        raise ValueError(
-                            f"Cluster IDs for bag {bag_id} must have shape "
-                            f"[{bag.size(0)}], got {tuple(clusters.shape)}"
-                        )
-            else:
-                self._cluster_ids = None
-            elapsed = time.time() - start_time
-            LOGGER.info(f"Tensor conversion completed in {elapsed:.2f} seconds")
-
-            # Log memory usage
-            mem_usage = sum(bag.element_size() * bag.nelement() for bag in self._bags) / (1024**3)
-            LOGGER.info(f"MILDataset initialized in in-memory mode, using {mem_usage:.2f} GB of memory")
-
-    def _load_bag(self, idx: int) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-        """Load a bag from a disk or cache."""
-        bag_id = self._bag_ids[idx]
-
-        # Check if a bag is in the cache
-        if bag_id in self._cache:
-            self._last_access[bag_id] = time.time()
-            return self._cache[bag_id]
-
-        try:
-            if self._single_file_mode:
-                # Load all bags from a single file
-                with open(self._bag_paths, 'rb') as f:
-                    data = pickle.load(f)
-
-                # Get the bag index from the bag_id
-                if bag_id in self._bag_id_to_idx:
-                    bag_idx = self._bag_id_to_idx[bag_id]
-                    bag_data = data["bags"][bag_idx]
-                    cluster_data = (
-                        data.get("cluster_ids", [None] * len(data["bags"]))[bag_idx]
-                        if self._has_cluster_ids
-                        else None
-                    )
-                else:
-                    LOGGER.error(f"Bag ID {bag_id} not found in file {self._bag_paths}")
-                    return torch.zeros((1, 1), dtype=self.dtype)
-            else:
-                # Load bag from individual file
-                file_path = self._bag_paths[bag_id]
-                with open(file_path, 'rb') as f:
-                    bag_data = pickle.load(f)
-                cluster_data = None
-
-            bag_tensor = torch.as_tensor(bag_data, dtype=self.dtype)
-            if self._has_cluster_ids and cluster_data is not None:
-                cluster_tensor = torch.as_tensor(cluster_data, dtype=torch.long)
-                cached_item = (bag_tensor, cluster_tensor)
-            else:
-                cached_item = bag_tensor
-
-            # Add to the cache if we have space
-            self._manage_cache()
-            self._cache[bag_id] = cached_item
-            self._last_access[bag_id] = time.time()
-
-            return cached_item
-        except Exception as e:
-            file_path = self._bag_paths if self._single_file_mode else self._bag_paths[bag_id]
-            LOGGER.error(f"Error loading bag {bag_id} from {file_path}: {e}")
-            # Return an empty tensor as fallback
-            return torch.zeros((1, 1), dtype=self.dtype)
-
-    def _manage_cache(self) -> None:
-        """Manage the cache to stay within memory limits."""
-        manage_cache(self._cache, self._last_access, self._memory_limit)
+        else:
+            self._cluster_ids = None
 
     # torch API
     def __len__(self) -> int:
@@ -309,10 +194,6 @@ class MILDataset(Dataset):
         self._bags = new_bags
         self._cluster_ids = new_cluster_ids
         self._has_cluster_ids = new_cluster_ids is not None
-        self._on_demand = False
-        self._single_file_mode = False
-        self._cache = {}
-        self._last_access = {}
 
         total_original = int(sum(original_counts))
         total_selected = int(sum(selected_counts))
@@ -348,45 +229,21 @@ class MILDataset(Dataset):
 
     def __getitem__(self, idx: int):
         series_label = self._series_label(idx)
-        if self._on_demand:
-            loaded = self._load_bag(idx)
-            if isinstance(loaded, tuple):
-                bag, clusters = loaded
-                if series_label is not None:
-                    return (
-                        bag,
-                        self._labels[idx],
-                        self._bag_ids[idx],
-                        clusters,
-                        series_label,
-                    )
-                return bag, self._labels[idx], self._bag_ids[idx], clusters
-            bag = loaded
+        bag = self._bags[idx]
+        if self._cluster_ids is not None:
             if series_label is not None:
-                return bag, self._labels[idx], self._bag_ids[idx], None, series_label
-        else:
-            bag = self._bags[idx]
-            if self._cluster_ids is not None:
-                if series_label is not None:
-                    return (
-                        bag,
-                        self._labels[idx],
-                        self._bag_ids[idx],
-                        self._cluster_ids[idx],
-                        series_label,
-                    )
-                return bag, self._labels[idx], self._bag_ids[idx], self._cluster_ids[idx]
-            if series_label is not None:
-                return bag, self._labels[idx], self._bag_ids[idx], None, series_label
+                return (
+                    bag,
+                    self._labels[idx],
+                    self._bag_ids[idx],
+                    self._cluster_ids[idx],
+                    series_label,
+                )
+            return bag, self._labels[idx], self._bag_ids[idx], self._cluster_ids[idx]
+        if series_label is not None:
+            return bag, self._labels[idx], self._bag_ids[idx], None, series_label
         return bag, self._labels[idx], self._bag_ids[idx]
 
     def get_memory_usage(self) -> float:
         """Get the current memory usage of the dataset in GB."""
-        if not self._on_demand:
-            return sum(bag.element_size() * bag.nelement() for bag in self._bags) / (1024**3)
-        else:
-            total = 0
-            for item in self._cache.values():
-                bag = item[0] if isinstance(item, tuple) else item
-                total += bag.element_size() * bag.nelement()
-            return total / (1024**3)
+        return sum(bag.element_size() * bag.nelement() for bag in self._bags) / (1024**3)

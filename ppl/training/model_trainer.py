@@ -69,13 +69,18 @@ class ModelTrainer:
         self.experiment_name = experiment_name
         self.data_module = None  # Will store the MILDataModule instance
 
-    def build_model(self, input_dim: int) -> pl.LightningModule:
+    def build_model(
+        self, input_dim: int, output_bias: float | None = None
+    ) -> pl.LightningModule:
         """Build a model with the given input dimension.
 
         Parameters
         ----------
         input_dim : int
-            Input dimension for the model (number of features)
+            Input dimension for the model (number of features).
+        output_bias : float, optional
+            Regression head bias initializer (typically ``mean(train_y)``), so
+            predictions start at the target mean instead of 0.
 
         Returns
         -------
@@ -84,6 +89,13 @@ class ModelTrainer:
         """
         model_cfg = replace(self.model_cfg, input_dim=input_dim, task=self.task)
         LOGGER.info("[MODEL] Injected input_dim=%d into ModelBuilderConfig", input_dim)
+
+        # Seed the regression head bias at the target mean unless explicitly set.
+        if output_bias is not None and self.task == "regression":
+            predictor_kwargs = dict(model_cfg.predictor_kwargs or {})
+            predictor_kwargs.setdefault("output_bias", float(output_bias))
+            model_cfg = replace(model_cfg, predictor_kwargs=predictor_kwargs)
+            LOGGER.info("[MODEL] Seeded predictor output_bias=%.4f (train mean)", output_bias)
 
         model = ModelBuilder(model_cfg).build()
         self._attach_trainer_runtime_config(model)
@@ -372,8 +384,13 @@ class ModelTrainer:
         """
         # Store the data module for later use
         self.data_module = dm
-        
-        model = self.build_model(len(dm.feature_names))
+
+        train_mean = None
+        train_labels = getattr(getattr(dm, "_train", None), "_labels", None)
+        if train_labels is not None and len(train_labels):
+            train_mean = float(train_labels.float().mean())
+
+        model = self.build_model(len(dm.feature_names), output_bias=train_mean)
         trainer = self.create_trainer(logger)
         self.log_hyperparams(logger, model)
 

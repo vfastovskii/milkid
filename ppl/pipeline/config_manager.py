@@ -92,13 +92,7 @@ class PipelineConfigManager:
         # Set experiment_name from trainer config if available
         if hasattr(self.cfg.trainer, 'experiment_name') and self.cfg.trainer.experiment_name:
             self.data_cfg.experiment_name = self.cfg.trainer.experiment_name
-            LOGGER.info(f"Using experiment_name '{self.data_cfg.experiment_name}' for data splits")
-
-            # Set default cache_dir if not specified
-            if not self.data_cfg.cache_dir:
-                # Use the experiment_name to create a default cache directory
-                self.data_cfg.cache_dir = Path(self.cfg.trainer.experiment_name)
-                LOGGER.info(f"Setting default cache_dir to '{self.data_cfg.cache_dir}' for data splits")
+            LOGGER.info(f"Using experiment_name '{self.data_cfg.experiment_name}' for results")
 
         # Validate path
         if isinstance(self.data_cfg.csv_path, str):

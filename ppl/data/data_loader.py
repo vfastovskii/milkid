@@ -21,10 +21,8 @@ from ppl.data.data_loader_impl import (
     build_bags,
     build_bag_series_labels,
     cluster_bags,
-    cluster_config_signature,
     validate_dataframe,
     log_dataset_stats,
-    save_bags_to_disk,
 )
 from ppl.data.data_module_impl import setup_data_module
 
@@ -100,30 +98,10 @@ class MILDataModule(pl.LightningDataModule):
         if cfg.task not in {"regression", "classification"}:
             raise ValueError("task must be 'classification' or 'regression'")
 
-        # Initialize with default values
+        # Initialize with default values (datasets are always built in-memory)
         self.scaler: Optional[Any] = None
         self.feature_names: List[str] = []
         self._train = self._val = self._test = None  # filled in setup()
-
-        # Create a cache directory if specified
-        self._cache_dir = None
-        if cfg.cache_dir:
-            # Resolve cache directory path relative to project root
-            self._cache_dir = resolve_path(cfg.cache_dir)
-
-            # If experiment_name is provided, create a subdirectory for this experiment
-            if cfg.experiment_name:
-                self._cache_dir = self._cache_dir / cfg.experiment_name
-
-            self._cache_dir.mkdir(parents=True, exist_ok=True)
-            LOGGER.info(f"[DM] Using cache directory: {self._cache_dir}")
-
-        # Memory management settings
-        self._memory_limit = getattr(cfg, 'memory_limit', None)
-        self._on_demand_loading = getattr(cfg, 'on_demand_loading', False)
-
-        if self._on_demand_loading:
-            LOGGER.info("[DM] Using on-demand loading mode to reduce memory usage")
 
     # Lightning API
     def setup(self, stage: str | None = None):
@@ -143,31 +121,6 @@ class MILDataModule(pl.LightningDataModule):
         """
         # Implementation details are in data_module_impl.py
         setup_data_module(self, stage)
-
-    def _save_bags_to_disk(
-        self,
-        bags,
-        bag_ids,
-        split,
-        cluster_ids=None,
-        series_labels=None,
-    ):
-        """Save bags to disk for on-demand loading."""
-        if not self._cache_dir:
-            raise ValueError("Cache directory not specified")
-        return save_bags_to_disk(
-            bags,
-            bag_ids,
-            split,
-            self._cache_dir,
-            cluster_ids=cluster_ids,
-            cluster_config=(
-                cluster_config_signature(self.cfg)
-                if cluster_ids is not None
-                else None
-            ),
-            series_labels=series_labels,
-        )
 
     def _cluster_bags(self, bags, split_name=""):
         """Cluster conformers per bag in scaled descriptor space."""
