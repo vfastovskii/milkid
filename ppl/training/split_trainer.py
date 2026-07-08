@@ -67,10 +67,21 @@ class SplitTrainer:
         dict[str, float]
             Validation metrics for the best checkpoint.
         """
-        LOGGER.info("[TRAIN] Train on split=0, validate on split=1, test on split=2")
+        run_log = logging.getLogger("milk")
+        if self.experiment_name:
+            run_log.info("Experiment: %s", self.experiment_name)
+        run_log.info("Preparing data…")
 
         dm = MILDataModule(self.data_cfg)
         dm.setup("fit")
+
+        def _n(ds):
+            return len(ds) if ds is not None else 0
+
+        run_log.info(
+            "Data ready: %d train / %d val / %d test bags · %d features",
+            _n(dm._train), _n(dm._val), _n(dm._test), len(dm.feature_names),
+        )
 
         log_split_distributions(dm, stage="train")
         logger = create_mlflow_logger(
@@ -82,6 +93,10 @@ class SplitTrainer:
         metrics = self.model_trainer.fit_validate(dm, logger)
 
         self._export_plots(dm)
+        if self.experiment_name:
+            run_log.info(
+                "Results saved to %s", create_results_directory(self.experiment_name)
+            )
         return metrics
 
     def _export_plots(self, dm: MILDataModule) -> None:

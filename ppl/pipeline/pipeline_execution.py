@@ -25,9 +25,9 @@ def execute_pipeline(cfg: PipelineConfig, split_trainer: SplitTrainer) -> None:
     Exception
         If pipeline execution fails.
     """
-    LOGGER.info("Pipeline started …")
-    LOGGER.info("[EXP CFG] Experiment configuration:\n%s", pprint.pformat(cfg))
+    LOGGER.debug("Pipeline started …")
+    LOGGER.debug("[EXP CFG] Experiment configuration:\n%s", pprint.pformat(cfg))
 
     split_trainer.run()
 
-    LOGGER.info("Pipeline finished successfully.")
+    logging.getLogger("milk").info("Pipeline finished.")

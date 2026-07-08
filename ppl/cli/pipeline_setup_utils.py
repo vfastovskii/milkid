@@ -80,45 +80,60 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         logging.error("Failed to parse arguments: %s", e)
         raise
 
-def configure_logging(level: str = "INFO") -> None:
-    """Configure a root logger with consistent formatting and timestamp.
+# Logger names whose INFO messages form the clean, human-readable run narrative.
+# Everything else under ``ppl.*`` is treated as technical detail and hidden at
+# INFO (still shown at --log-level DEBUG).
+_NARRATIVE_LOGGERS = ("milk", "root", "ppl.models.lightning.training")
 
-    This configuration is designed to be compatible with tqdm progress bars
-    by using a simpler format during training and ensuring logs don't interfere
-    with the progress bar.
+
+class _CleanFormatter(logging.Formatter):
+    """Bare message for INFO; ``LEVEL: message`` for warnings/errors."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        if record.levelno <= logging.INFO:
+            return record.getMessage()
+        return f"{record.levelname}: {record.getMessage()}"
+
+
+class _NarrativeFilter(logging.Filter):
+    """At INFO, pass only the run narrative + warnings; hide technical chatter."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno >= logging.WARNING:
+            return True
+        name = record.name
+        return any(name == n or name.startswith(n + ".") for n in _NARRATIVE_LOGGERS)
+
+
+def configure_logging(level: str = "INFO") -> None:
+    """Configure logging.
+
+    At the default ``INFO`` level the output is a minimal, staged narrative
+    (the ``milk`` logger plus per-epoch metrics); all the technical ``ppl.*``
+    detail is suppressed. Use ``--log-level DEBUG`` to see everything.
     """
     try:
-        # Create a filter to suppress certain log messages during training
-        class ProgressBarFilter(logging.Filter):
-            def filter(self, record):
-                # Filter out memory usage logs during training steps
-                if "_step" in record.getMessage() and record.levelno < logging.WARNING:
-                    return False
-                return True
-
-        # Configure the root logger
         root_logger = logging.getLogger()
         root_logger.setLevel(level)
-
-        # Remove any existing handlers
         for handler in root_logger.handlers[:]:
             root_logger.removeHandler(handler)
 
-        # Create a new handler with the filter
         handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter(
-            "[{asctime}] {levelname:<8} {name}: {message}",
-            style="{",
-            datefmt="%Y-%m-%d %H:%M:%S"
-        ))
-        handler.addFilter(ProgressBarFilter())
+        if str(level).upper() == "DEBUG":
+            handler.setFormatter(logging.Formatter(
+                "[{asctime}] {levelname:<8} {name}: {message}",
+                style="{", datefmt="%Y-%m-%d %H:%M:%S",
+            ))
+        else:
+            handler.setFormatter(_CleanFormatter())
+            handler.addFilter(_NarrativeFilter())
         root_logger.addHandler(handler)
 
-        # Set PyTorch Lightning's logger level to WARNING to reduce output
         logging.getLogger("pytorch_lightning").setLevel(logging.WARNING)
-
-        # Set tqdm logger level to WARNING to avoid interference with progress bars
         logging.getLogger("tqdm").setLevel(logging.WARNING)
+        # MLflow uses its own root handler; quiet its info chatter.
+        if str(level).upper() != "DEBUG":
+            logging.getLogger("mlflow").setLevel(logging.WARNING)
 
     except Exception as e:
         print(f"Failed to configure logging: {e}")

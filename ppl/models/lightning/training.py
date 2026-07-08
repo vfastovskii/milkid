@@ -241,12 +241,30 @@ class TrainingMethods(nn.Module):
             train_metrics.get("train_rmse"),
             val_metrics.get("rmse"),
         )
-        LOGGER.info(
+        epoch = getattr(self, "current_epoch", "?")
+
+        def _short(v):
+            v = self._to_float_or_none(v)
+            return f"{v:.3f}" if v is not None else "n/a"
+
+        # Concise per-epoch line only for real training epochs; a train-less pass
+        # (the post-fit best-model re-validation) would otherwise print nan.
+        if train_metrics:
+            LOGGER.info(
+                "Epoch %s · train rmse %s mae %s · val rmse %s mae %s",
+                epoch,
+                _short(train_metrics.get("train_rmse")),
+                _short(train_metrics.get("train_mae")),
+                _short(val_metrics.get("rmse")),
+                _short(val_metrics.get("mae")),
+            )
+        # Full technical detail (gaps, refinement schedule, prototype state) at DEBUG.
+        LOGGER.debug(
             "[EPOCH_METRICS] epoch=%s "
             "train_loss=%s train_mae=%s train_rmse=%s train_r2=%s "
             "val_loss=%s val_mae=%s val_rmse=%s val_r2=%s "
             "mae_gap=%s rmse_gap=%s%s%s",
-            getattr(self, "current_epoch", "unknown"),
+            epoch,
             self._format_epoch_scalar(getattr(self, "_last_train_loss", None)),
             self._format_epoch_scalar(train_metrics.get("train_mae")),
             self._format_epoch_scalar(train_metrics.get("train_rmse")),
@@ -311,7 +329,7 @@ class TrainingMethods(nn.Module):
             )
             return
 
-        LOGGER.info(
+        LOGGER.debug(
             "[ATTN_REFINEMENT] Reduced embedder/predictor LR by factor=%.4f: %s",
             factor,
             ", ".join(
@@ -363,7 +381,7 @@ class TrainingMethods(nn.Module):
                 forced_weight=weight,
             )
             if log:
-                LOGGER.info(
+                LOGGER.debug(
                     "[ATTN_REFINEMENT] epoch=%d query_ramp=%d/%d "
                     "forced_query_weight=%.3f",
                     epoch,
@@ -388,7 +406,7 @@ class TrainingMethods(nn.Module):
                 trainer.should_stop = True
             if not bool(getattr(self, "_attention_refinement_stop_logged", False)):
                 self._attention_refinement_stop_logged = True
-                LOGGER.info(
+                LOGGER.debug(
                     "[ATTN_REFINEMENT] Completed %d query-ramp epochs after "
                     "trigger_epoch=%s; stopping training",
                     query_epochs,
@@ -478,7 +496,7 @@ class TrainingMethods(nn.Module):
             1,
             int(getattr(self, "_attention_refinement_query_epochs", 25) or 25),
         )
-        LOGGER.info(
+        LOGGER.debug(
             "[ATTN_REFINEMENT] Triggered at epoch=%d metric=%s train=%.6f "
             "val=%.6f best_val=%.6f gap=%.6f rel_gap=%.3f. Next %d epochs "
             "will ramp active-query weight from %.3f to %.3f.",
@@ -552,7 +570,7 @@ class TrainingMethods(nn.Module):
             trainer = getattr(self, "trainer", None)
             if trainer is not None:
                 trainer.should_stop = True
-            LOGGER.info(
+            LOGGER.debug(
                 "[OVERFIT_STOP] epoch=%d metric=%s train=%.6f val=%.6f "
                 "best_val=%.6f gap=%.6f rel_gap=%.3f bad_epochs=%d/%d",
                 epoch,

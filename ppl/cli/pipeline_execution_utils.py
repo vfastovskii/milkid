@@ -36,7 +36,7 @@ def configure_pipeline(config_path: Path) -> PipelineOrchestrator:
     try:
         if not config_path.is_file():
             raise FileNotFoundError(f"Config file not found: {config_path}")
-        logging.info("Loading config: %s", config_path)
+        logging.getLogger("milk").info("Config: %s", config_path.name)
         return build_pipeline_from_config(yaml_path=config_path)
     except Exception as e:
         logging.error("Failed to configure pipeline: %s", e)
@@ -72,7 +72,7 @@ def execute_pipeline(args: argparse.Namespace) -> None:
         # Configure pipeline from config file
         pipeline = configure_pipeline(config_path=args.ppl_cfg_path)
             
-        logging.info("Running pipeline ...")
+        logging.debug("Running pipeline ...")
         pipeline.run()
     except Exception as e:
         logging.error("Pipeline execution failed: %s", e)

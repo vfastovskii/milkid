@@ -17,6 +17,14 @@ from ppl.training.predictions import predict_rows, regression_metrics
 LOGGER = logging.getLogger(__name__)
 
 
+def _fmt(value) -> str:
+    """Format a scalar metric to 3 dp for the narrative, or 'n/a'."""
+    try:
+        return f"{float(value):.3f}"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
 def export_fit_artifacts(mt, dm, model, best_model, val_metrics) -> None:
     """Write train_fit.csv, val.csv, and res.txt for the best/in-memory model."""
     trainer = mt._last_trainer
@@ -168,7 +176,7 @@ def evaluate_on_test(mt, dm, model) -> None:
             LOGGER.info("[MODEL][TEST] No test split available – skipping test evaluation")
             return
 
-        LOGGER.info("[MODEL][TEST] Evaluating best model on the test split")
+        logging.getLogger("milk").info("Evaluating best model on the test split…")
         best_test_model = mt.get_best_model()
         test_model = best_test_model if best_test_model is not None else model
         test_best_epoch = mt._get_best_epoch_from_trainer(mt._last_trainer)
@@ -183,6 +191,10 @@ def evaluate_on_test(mt, dm, model) -> None:
         )
         test_metrics = temp_trainer.test(test_model, dataloaders=test_dl, verbose=False)[0]
         log_metrics(test_metrics, stage="test", prefix="test")
+        logging.getLogger("milk").info(
+            "Test: rmse %s mae %s",
+            _fmt(test_metrics.get("test_rmse")), _fmt(test_metrics.get("test_mae")),
+        )
 
         if not mt.experiment_name:
             return

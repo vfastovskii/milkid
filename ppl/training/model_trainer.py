@@ -89,6 +89,14 @@ class ModelTrainer:
         self._attach_trainer_runtime_config(model)
         LOGGER.info("[MODEL] Model successfully built – parameters verified.")
 
+        n_params = sum(p.numel() for p in model.parameters())
+        logging.getLogger("milk").info(
+            "Model: %s → %s → %s (%.1fM params)",
+            self.model_cfg.embedder_type,
+            self.model_cfg.aggregator_type,
+            self.model_cfg.predictor_type,
+            n_params / 1e6,
+        )
         return model
 
     def _attach_trainer_runtime_config(self, model: pl.LightningModule) -> None:
@@ -373,6 +381,9 @@ class ModelTrainer:
         self._last_trainer = trainer
         self._last_model = model
 
+        logging.getLogger("milk").info(
+            "Training up to %d epochs on %s…", self.max_epochs, self.device
+        )
         trainer.fit(model, datamodule=dm)
 
         # Get the best model from checkpoint instead of using the model in memory (last epoch)
