@@ -87,6 +87,17 @@ def predict_rows(
             y_pred_np = np.asarray(y_pred.detach().cpu().numpy()).reshape(-1)
             for i, mol_id in enumerate(bag_ids):
                 rows.append((str(mol_id), float(y_np[i]), float(y_pred_np[i])))
+
+    # Match the logged-metric population: when a split has full + "__noexp"
+    # paired bags, keep only the canonical "__noexp" bag per molecule (mirrors
+    # the Lightning eval filter) and expose a clean molecule id. Train splits
+    # have no "__noexp" duplicates, so this is a no-op there.
+    if any(bag_id.endswith("__noexp") for bag_id, _, _ in rows):
+        rows = [
+            (bag_id.removesuffix("__noexp"), true, pred)
+            for (bag_id, true, pred) in rows
+            if bag_id.endswith("__noexp")
+        ]
     return rows
 
 

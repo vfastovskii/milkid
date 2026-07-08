@@ -184,12 +184,16 @@ def evaluate_on_test(mt, dm, model) -> None:
             setattr(test_model, "_evaluation_epoch_override", test_best_epoch)
 
         # Quiet temporary trainer to avoid extra progress bars/logging.
+        # Pass datamodule=dm (not dataloaders=) so the Lightning test_step can
+        # resolve dm._test and apply the __noexp eval filter — otherwise the
+        # logged metric is averaged over full + __noexp bags and disagrees with
+        # test.csv (which is __noexp-only).
         from pytorch_lightning import Trainer as _PLTrainer
         temp_trainer = _PLTrainer(
             logger=False, enable_checkpointing=False,
             enable_progress_bar=False, enable_model_summary=False,
         )
-        test_metrics = temp_trainer.test(test_model, dataloaders=test_dl, verbose=False)[0]
+        test_metrics = temp_trainer.test(test_model, datamodule=dm, verbose=False)[0]
         log_metrics(test_metrics, stage="test", prefix="test")
         logging.getLogger("milk").info(
             "Test: rmse %s mae %s",
@@ -200,9 +204,16 @@ def evaluate_on_test(mt, dm, model) -> None:
             return
         try:
             results_dir = create_results_directory(mt.experiment_name)
-            test_rows = predict_rows(test_model, test_dl, mt.task)
+            # Match the logged test metric exactly: same stage / best epoch /
+            # series labels the Lightning test_step used (so the active-prototype
+            # query and epoch-dependent behavior are identical).
+            test_rows = predict_rows(
+                test_model, test_dl, mt.task,
+                stage="test", eval_epoch=test_best_epoch, use_series_labels=True,
+            )
             if test_rows:
                 test_df = pd.DataFrame(test_rows, columns=["mol_id", "true", "predicted"])
+                test_df["true"] = test_df["true"].round(2)
                 test_df["predicted"] = test_df["predicted"].round(2)
                 test_df["abs_error"] = (test_df["true"] - test_df["predicted"]).abs().round(2)
                 test_df.to_csv(results_dir / "test.csv", index=False)

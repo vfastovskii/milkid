@@ -3,17 +3,13 @@
 This module contains helper functions and implementation details for the
 MILDataModule and MILDataset classes defined in data_loader.py.
 """
-import gc
 import logging
 import os
-import pickle
 import random
-from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
-import psutil
 import torch
 import tqdm
 from sklearn.cluster import AgglomerativeClustering
@@ -124,29 +120,6 @@ def _choose_silhouette_cluster_count(
         return 1
 
     return int(best_k)
-
-
-def cluster_config_signature(cfg: DataLoaderConfig) -> Dict[str, object]:
-    """Return the clustering settings that affect cached cluster labels."""
-    return {
-        "cluster_instances": bool(getattr(cfg, "cluster_instances", False)),
-        "cluster_selection_method": str(
-            getattr(cfg, "cluster_selection_method", "silhouette")
-        ).lower(),
-        "cluster_max_clusters": int(getattr(cfg, "cluster_max_clusters", 6)),
-        "cluster_min_clusters": int(getattr(cfg, "cluster_min_clusters", 1)),
-        "cluster_min_silhouette": float(
-            getattr(cfg, "cluster_min_silhouette", 0.05)
-        ),
-        "cluster_distance_threshold": getattr(
-            cfg,
-            "cluster_distance_threshold",
-            None,
-        ),
-        "cluster_linkage": str(getattr(cfg, "cluster_linkage", "average")),
-        "cluster_metric": str(getattr(cfg, "cluster_metric", "euclidean")),
-        "cluster_feature_space": "per_fingerprint_scaled_no_sqrt",
-    }
 
 
 def _seed_worker(worker_id: int) -> None:
@@ -826,107 +799,3 @@ def make_dataloader(ds, cfg: DataLoaderConfig, *, shuffle: bool) -> DataLoader:
             generator=generator,
             collate_fn=collate_mil,
         )
-
-
-def save_bags_to_disk(
-    bags: List[np.ndarray],
-    bag_ids: List[str],
-    split: str,
-    cache_dir: Path,
-    cluster_ids: Optional[List[np.ndarray]] = None,
-    cluster_config: Optional[Dict[str, object]] = None,
-    series_labels: Optional[Sequence[str]] = None,
-) -> Dict[str, str]:
-    """Save bags to disk for on-demand loading.
-
-    Parameters
-    ----------
-    bags : List[np.ndarray]
-        List of bags to save
-    bag_ids : List[str]
-        List of bag IDs
-    split : str
-        Dataset split name (train, val, test)
-    cache_dir : Path
-        Directory to save bags to
-
-    Returns
-    -------
-    Dict[str, str]
-        Mapping from bag IDs to file paths
-    """
-    if not cache_dir:
-        raise ValueError("Cache directory not specified")
-
-    LOGGER.info(f"Saving bags to disk: split={split}")
-
-    split_dir = cache_dir / split
-    LOGGER.info(f"Creating directory for {split} data: {split_dir}")
-
-    split_dir.mkdir(parents=True, exist_ok=True)
-
-    # Save all bags to a single file
-    file_path = split_dir / f"{split}.pkl"
-    LOGGER.info(f"Saving {len(bags)} bags to {file_path}")
-
-    # Create a dictionary with all the data
-    data = {
-        "bags": bags,
-        "bag_ids": bag_ids
-    }
-    if cluster_ids is not None:
-        if len(cluster_ids) != len(bags):
-            raise ValueError(
-                "cluster_ids length must match bags length when saving: "
-                f"{len(cluster_ids)} != {len(bags)}"
-            )
-        data["cluster_ids"] = cluster_ids
-    if cluster_config is not None:
-        data["cluster_config"] = dict(cluster_config)
-    if series_labels is not None:
-        if len(series_labels) != len(bags):
-            raise ValueError(
-                "series_labels length must match bags length when saving: "
-                f"{len(series_labels)} != {len(bags)}"
-            )
-        data["series_labels"] = [str(label) for label in series_labels]
-
-    with open(file_path, 'wb') as f:
-        pickle.dump(data, f)
-
-    # Return a dictionary mapping bag IDs to the single file path
-    # This is for compatibility with the existing code
-    return {bag_id: str(file_path) for bag_id in bag_ids}
-
-
-def manage_cache(cache, last_access, memory_limit):
-    """Manage the cache to stay within memory limits."""
-    if not memory_limit:
-        return
-
-    # Check current memory usage
-    process = psutil.Process(os.getpid())
-    current_memory_gb = process.memory_info().rss / (1024**3)
-
-    # If we're over the limit, remove least recently used items
-    if current_memory_gb > memory_limit:
-        LOGGER.debug(f"Memory usage ({current_memory_gb:.2f} GB) exceeds limit ({memory_limit:.2f} GB), cleaning cache")
-
-        # Sort cache items by last access time
-        sorted_items = sorted(last_access.items(), key=lambda x: x[1])
-
-        # Remove items until we're under the limit or the cache is empty
-        for bag_id, _ in sorted_items:
-            if bag_id in cache:
-                del cache[bag_id]
-                del last_access[bag_id]
-
-                # Check if we're under the limit
-                current_memory_gb = process.memory_info().rss / (1024**3)
-                if current_memory_gb < memory_limit * 0.8:  # 20% buffer
-                    break
-
-        # Force garbage collection
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
