@@ -15,7 +15,7 @@ from ppl.config import (
 )
 from ppl.config.trainer_config import TrainerConfig
 from ppl.pipeline.config_override_utils import override_dataclass
-from ppl.utils.reproducibility import set_deterministic
+from ppl.utils.reproducibility import resolve_device, set_deterministic
 
 # Global logging
 LOGGER = logging.getLogger(__name__)
@@ -110,6 +110,13 @@ class PipelineConfigManager:
         """Set up trainer configuration and logging."""
         base_trainer_cfg = TrainerConfig()
         self.trainer_cfg: TrainerConfig = override_dataclass(base_trainer_cfg, self.cfg.trainer)
+
+        # Resolve the device now (prefer CUDA when available) so every downstream
+        # consumer sees a concrete device. "auto"/"mps"/"cuda" -> cuda if present.
+        resolved = resolve_device(self.trainer_cfg.device)
+        if resolved != self.trainer_cfg.device:
+            LOGGER.info("Resolved device '%s' -> '%s'", self.trainer_cfg.device, resolved)
+        self.trainer_cfg.device = resolved
 
         # Ensure the log directory is a Path and exists
         self.log_save_dir: Path = Path(self.trainer_cfg.log_save_dir).expanduser()

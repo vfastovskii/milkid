@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Optional, List, Union, Any
 
 import pytorch_lightning as pl
+import torch
 from pytorch_lightning.callbacks import Callback
 
 
@@ -145,12 +146,20 @@ class TrainerBuilder:
             Configured PyTorch Lightning Trainer
         """
 
-        # Determine accelerator if not specified
+        # Determine accelerator if not specified. Resolve "auto" (and prefer CUDA)
+        # so a config that says auto/mps still uses the GPU on a CUDA machine.
         accelerator = config.accelerator
         if accelerator is None:
-            if config.device.startswith("cuda"):
+            dev = (config.device or "auto").lower()
+            if dev == "auto":
+                dev = (
+                    "cuda" if torch.cuda.is_available()
+                    else "mps" if (hasattr(torch.backends, "mps") and torch.backends.mps.is_available())
+                    else "cpu"
+                )
+            if dev.startswith("cuda") or dev == "gpu":
                 accelerator = "gpu"
-            elif config.device == "mps":
+            elif dev == "mps":
                 accelerator = "mps"
             else:
                 accelerator = "cpu"

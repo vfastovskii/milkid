@@ -5,6 +5,7 @@ from ppl.utils.reproducibility.deterministic_setup import (
     set_deterministic,
     check_determinism,
     detect_best_device,
+    resolve_device,
     get_device,
     DEFAULT_SEED
 )

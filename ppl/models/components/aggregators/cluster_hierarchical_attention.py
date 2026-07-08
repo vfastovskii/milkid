@@ -10,6 +10,33 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+def _det_index_add_(target: torch.Tensor, dim: int, index: torch.Tensor, source: torch.Tensor) -> torch.Tensor:
+    """In-place index_add_ that stays deterministic on MPS.
+
+    ``torch.use_deterministic_algorithms(True)`` covers index_add_ on CUDA/CPU
+    but not on the Metal (MPS) backend, where the scatter-reduction order is
+    unspecified. On MPS we run the reduction on CPU (serial, deterministic) and
+    copy the result back; other backends use the native op.
+    """
+    if target.device.type == "mps":
+        acc = target.cpu()
+        acc.index_add_(dim, index.cpu(), source.cpu())
+        target.copy_(acc.to(target.device))
+    else:
+        target.index_add_(dim, index, source)
+    return target
+
+
+def _det_scatter_add_(target: torch.Tensor, dim: int, index: torch.Tensor, source: torch.Tensor) -> torch.Tensor:
+    """In-place scatter_add_ that stays deterministic on MPS (see _det_index_add_)."""
+    if target.device.type == "mps":
+        acc = target.cpu()
+        acc.scatter_add_(dim, index.cpu(), source.cpu())
+        target.copy_(acc.to(target.device))
+    else:
+        target.scatter_add_(dim, index, source)
+    return target
+
 
 class SwiGLUFeedForward(nn.Module):
     """Transformer FFN with SwiGLU gating and rounded hidden width."""
@@ -477,8 +504,8 @@ class ClusterHierarchicalAttentionAggregator(nn.Module):
                 continue
             ids_b = cluster_ids[b, valid_b].clamp(0, C - 1)
             h_b = h[b, valid_b]
-            tokens[b].index_add_(0, ids_b, h_b)
-            counts[b].index_add_(0, ids_b, h.new_ones(ids_b.shape, dtype=h.dtype))
+            _det_index_add_(tokens[b], 0, ids_b, h_b)
+            _det_index_add_(counts[b], 0, ids_b, h.new_ones(ids_b.shape, dtype=h.dtype))
 
         cluster_valid = counts > 0
         tokens = tokens / counts.clamp_min(self.eps).unsqueeze(-1)
@@ -532,7 +559,7 @@ class ClusterHierarchicalAttentionAggregator(nn.Module):
         safe_ids = cluster_ids.clamp(0, C - 1)
         alpha_valid = alpha.masked_fill(~valid, 0.0)
         mass = alpha.new_zeros((B, C))
-        mass.scatter_add_(1, safe_ids, alpha_valid)
+        _det_scatter_add_(mass, 1, safe_ids, alpha_valid)
         mass = mass.masked_fill(~cluster_valid, 0.0)
         return mass / mass.sum(dim=-1, keepdim=True).clamp_min(self.eps)
 

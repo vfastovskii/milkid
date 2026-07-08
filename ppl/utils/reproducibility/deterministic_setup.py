@@ -26,6 +26,33 @@ def detect_best_device() -> torch.device:
     return torch.device("cpu")
 
 
+def _mps_available() -> bool:
+    return hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
+
+
+def resolve_device(requested: str = "auto") -> str:
+    """Resolve a device string, preferring CUDA whenever it is available.
+
+    ``"cpu"`` is honored exactly (e.g. for bitwise-reproducible runs). Any other
+    value (``"auto"``, ``"mps"``, ``"cuda"``, ``"gpu"``) resolves to CUDA if
+    present, then MPS, then CPU — so the same config runs on the GPU cluster and
+    the Mac unchanged.
+    """
+    requested = (requested or "auto").lower()
+    if requested == "cpu":
+        return "cpu"
+    if torch.cuda.is_available():
+        return "cuda"
+    if _mps_available() and requested in ("auto", "mps"):
+        return "mps"
+    if requested in ("cuda", "gpu"):
+        LOGGER.warning(
+            "Requested %s but no CUDA device is available; falling back to %s",
+            requested, "mps" if _mps_available() else "cpu",
+        )
+    return "mps" if _mps_available() else "cpu"
+
+
 def set_deterministic(seed: int = DEFAULT_SEED, *, limit_threads: bool = False) -> None:
     """
     Configure deterministic behavior across all relevant libraries.
@@ -99,6 +126,16 @@ def check_determinism() -> None:
     if issues:
         error_msg = "Deterministic setup verification failed:\n" + "\n".join(f"- {issue}" for issue in issues)
         raise DeterminismError(error_msg)
+
+    # MPS does not honor use_deterministic_algorithms for every kernel. The
+    # aggregator offloads its known-nondeterministic scatter/index reductions to
+    # CPU, but other MPS ops may still vary slightly run-to-run.
+    if not torch.cuda.is_available() and _mps_available():
+        LOGGER.warning(
+            "Determinism on MPS is best-effort: torch.use_deterministic_algorithms "
+            "does not cover all Metal kernels. Use device=cpu for bitwise-reproducible runs."
+        )
+        return
 
     LOGGER.info("Deterministic setup verified successfully")
 

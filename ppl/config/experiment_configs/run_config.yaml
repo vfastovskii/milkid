@@ -145,7 +145,7 @@ model:
 trainer:
   max_epochs: 100
   min_epochs: 0
-  device: mps
+  device: auto   # auto -> CUDA if available, else MPS, else CPU (use "cpu" for bitwise-reproducible runs)
   precision: "32-true"
   log_every_n_steps: 10  # Set to a lower value since we only have 37 training batches
   log_save_dir: bace809_cluster_hier_mha_200c_2jul_bs16_test16_log #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_d_sc_fixlog
