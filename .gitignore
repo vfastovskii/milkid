@@ -25,3 +25,5 @@ TestResults.xml
 __pycache__/
 *.py[cod]
 *$py.class
+
+results/
