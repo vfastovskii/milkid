@@ -27,3 +27,6 @@ __pycache__/
 *$py.class
 
 results/
+
+.claude
+.idea
