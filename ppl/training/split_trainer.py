@@ -159,41 +159,26 @@ class SplitTrainer:
             conf_ids = dict(getattr(dm, "bag_conf_ids", {}) or {})
             task = self.model_trainer.task
 
-            # Validation artifacts
-            val_loader = dm.val_dataloader()
-            if val_loader is not None and (not hasattr(val_loader, "__len__") or len(val_loader) > 0):
+            def _plot_split(loader, out_dir, label):
                 plot_attention_weights_from_model(
-                    model=model,
-                    dataloader=val_loader,
-                    save_dir=str(val_dir / "attention_weights"),
-                    max_bags=1000,
-                    conf_ids=conf_ids,
+                    model=model, dataloader=loader,
+                    save_dir=str(out_dir / "attention_weights"),
+                    max_bags=1000, conf_ids=conf_ids,
                 )
                 plot_true_vs_pred_from_model(
-                    model=model,
-                    dataloader=val_loader,
-                    save_path=str(val_dir / "true_vs_pred.png"),
-                    title="Experimental vs. Predicted Endpoint Value — Validation",
+                    model=model, dataloader=loader,
+                    save_path=str(out_dir / "true_vs_pred.png"),
+                    title=f"Experimental vs. Predicted Endpoint Value — {label}",
                     task=task,
                 )
 
-            # Training artifacts
+            val_loader = dm.val_dataloader()
+            if val_loader is not None and (not hasattr(val_loader, "__len__") or len(val_loader) > 0):
+                _plot_split(val_loader, val_dir, "Validation")
+
             train_loader = dm.train_dataloader()
             if train_loader is not None:
-                plot_attention_weights_from_model(
-                    model=model,
-                    dataloader=train_loader,
-                    save_dir=str(train_dir / "attention_weights"),
-                    max_bags=1000,
-                    conf_ids=conf_ids,
-                )
-                plot_true_vs_pred_from_model(
-                    model=model,
-                    dataloader=train_loader,
-                    save_path=str(train_dir / "true_vs_pred.png"),
-                    title="Experimental vs. Predicted Endpoint Value — Train",
-                    task=task,
-                )
+                _plot_split(train_loader, train_dir, "Train")
         except Exception as e:
             LOGGER.error(f"[TRAIN] Error generating plots: {e}")
             import traceback
