@@ -372,6 +372,17 @@ def process_data(self, df: pd.DataFrame, cfg: DataLoaderConfig,
         va_cluster_ids = self._cluster_bags(va_bags, "validation") if va_bags else []
         te_cluster_ids = self._cluster_bags(te_bags, "test") if te_bags else []
 
+        _all_cids = [
+            c for c in list(tr_cluster_ids or []) + list(va_cluster_ids or []) + list(te_cluster_ids or [])
+            if c is not None
+        ]
+        if _all_cids:
+            _n_clusters = [int(np.unique(c).size) for c in _all_cids]
+            logging.getLogger("milk").info(
+                "Clustered %d molecules: mean %.1f clusters/molecule (min %d, max %d).",
+                len(_n_clusters), float(np.mean(_n_clusters)), min(_n_clusters), max(_n_clusters),
+            )
+
     if getattr(self, "_block_normalized", False):
         LOGGER.warning(
             "[DM] Block-size normalization has already been applied in this "

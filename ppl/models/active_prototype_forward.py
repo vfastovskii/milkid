@@ -309,8 +309,8 @@ class ActivePrototypeMixin:
         if use_active_query_now and not getattr(self, "_active_proto_query_announced", False):
             self._active_proto_query_announced = True
             run_log.info(
-                "Active-prototype query engaged at epoch %s (query weight %.2f, "
-                "%d active prototypes).",
+                "Active-prototype query engaged at epoch %s — mixing prototype context "
+                "into attention (query weight %.2f, %d active prototypes).",
                 epoch,
                 query_weight,
                 num_active,

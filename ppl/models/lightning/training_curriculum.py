@@ -354,6 +354,15 @@ class _CurriculumMixin:
             1,
             int(getattr(self, "_attention_refinement_query_epochs", 25) or 25),
         )
+        logging.getLogger("milk").info(
+            "Attention refinement triggered at epoch %d (val %s worse than best, gap %.3f) — "
+            "mixing the active-prototype query into attention over the next %d epochs "
+            "(weight %.2f→%.2f), LRs scaled ×%.3g.",
+            epoch, metric, gap, query_epochs,
+            float(getattr(self, "_attention_refinement_query_weight_start", 0.0)),
+            float(getattr(self, "_attention_refinement_query_weight_end", 1.0)),
+            float(getattr(self, "_attention_refinement_lr_factor", 0.1) or 0.1),
+        )
         LOGGER.debug(
             "[ATTN_REFINEMENT] Triggered at epoch=%d metric=%s train=%.6f "
             "val=%.6f best_val=%.6f gap=%.6f rel_gap=%.3f. Next %d epochs "
