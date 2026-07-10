@@ -218,6 +218,29 @@ def process_data(self, df: pd.DataFrame, cfg: DataLoaderConfig,
         df_test, cfg, te_ids, "test"
     )
 
+    # Describe what bag construction produced (checked against the built bags):
+    # train drops experimental poses (1 bag/molecule); val/test keep each molecule
+    # twice — a full bag WITH experimental poses and a "__noexp" bag WITHOUT.
+    run_log = logging.getLogger("milk")
+    n_train_exp = sum(
+        1 for cids in tr_conf_ids if any("_experimental_pose" in str(c) for c in cids)
+    )
+    run_log.info(
+        "Train bags: %d molecules → %d bags, experimental poses removed, 1 bag/molecule%s.",
+        len(tr_ids), len(tr_bags),
+        f" ({n_train_exp} all-experimental molecule(s) kept as-is)" if n_train_exp else "",
+    )
+    for split_name, ids in (("Validation", va_ids), ("Test", te_ids)):
+        if not ids:
+            continue
+        n_molecules = sum(1 for i in ids if str(i).endswith("__noexp"))
+        run_log.info(
+            "%s bags: %d molecules → %d bags — each molecule kept twice: a full bag "
+            "(with experimental poses) + a '__noexp' bag (without). Only '__noexp' "
+            "counts toward eval metrics and plots.",
+            split_name, n_molecules, len(ids),
+        )
+
     # Capture the exact per-bag conformer IDs (aligned with each bag's instance
     # rows, including "__noexp" bags) so attention weights are always labeled from
     # the same rows they were computed on — never re-derived by re-reading the CSV.
