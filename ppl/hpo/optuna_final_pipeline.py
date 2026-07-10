@@ -490,7 +490,6 @@ def _run_phase3_confirmation(
             "trainer.validation_instance_importance_enabled": False,
             "trainer.enable_progress_bar": False,
             "trainer.enable_model_summary": False,
-            "model.optim.enable_gradient_tracking": False,
         }
         _apply_overrides(config, confirmation_overrides)
 

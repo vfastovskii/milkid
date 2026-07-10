@@ -139,7 +139,6 @@ model:
     aggregator_lr_factor: 1.0  # Explicit LR factor for aggregator
     predictor_lr_factor: 1.0  # Explicit LR factor for predictor
     active_query_lr_factor: 1.0  # Explicit LR factor for bioactive query builder
-    enable_gradient_tracking: false  # Disable gradient tracking
 
 trainer:
   max_epochs: 100

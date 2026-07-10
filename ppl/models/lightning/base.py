@@ -12,7 +12,6 @@ import torchmetrics as tm
 from ppl.models.loss import Loss
 from ppl.config.trainer_optim_config import TrainerOptimConfig
 from ppl.models.core import MILCore
-from ppl.models.gradient_tracking import GradientTracker
 
 from ppl.models.lightning.training import TrainingMethods
 from ppl.models.lightning.optimization import OptimizationMethods
@@ -108,10 +107,6 @@ class MILModelLightningWrapper(
             LOGGER.error(f"Failed to initialize metrics: {e}")
             LOGGER.error(traceback.format_exc())
             raise ValueError(f"Metrics initialization failed: {e}") from e
-
-        # Initialize gradient tracking if enabled
-        if getattr(optim_cfg, "enable_gradient_tracking", True):
-            self.gradient_tracker = GradientTracker(self.core)
 
         # Log model size
         log_model_size(self)

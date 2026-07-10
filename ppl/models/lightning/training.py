@@ -1180,10 +1180,6 @@ class TrainingMethods(nn.Module):
         if batch_idx % 100 == 0 and torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-        # Reset gradient statistics at the beginning of each epoch
-        if batch_idx == 0 and hasattr(self, 'gradient_tracker'):
-            self.gradient_tracker.reset_stats()
-
         return self._shared_step(batch, "train")
 
     def validation_step(self, batch, batch_idx):
@@ -1219,20 +1215,6 @@ class TrainingMethods(nn.Module):
         ):
             self._consume_current_train_epoch_metrics()
         self._log_active_prototype_epoch_summary()
-
-        # Log gradient statistics if gradient tracker is available
-        if hasattr(self, 'gradient_tracker'):
-            # Get the logger
-            if self.logger is not None:
-                # If there are multiple loggers, find the MLflow logger
-                if isinstance(self.logger, list):
-                    for logger in self.logger:
-                        if 'mlflow' in logger.__class__.__name__.lower():
-                            self.gradient_tracker.log_stats_to_mlflow(logger)
-                            break
-                else:
-                    # Single logger
-                    self.gradient_tracker.log_stats_to_mlflow(self.logger)
 
     def on_validation_epoch_end(self):
         """Compute and log validation metrics (val_*), excluding val_loss which is logged per-step (on_epoch)."""

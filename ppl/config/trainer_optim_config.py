@@ -28,4 +28,3 @@ class TrainerOptimConfig:
     aggregator_lr_factor: float = 1.0  # Explicit LR factor for aggregator
     predictor_lr_factor: float = 1.0  # Explicit LR factor for predictor
     active_query_lr_factor: float = 1.0  # LR factor for bioactive query builder
-    enable_gradient_tracking: bool = True  # Control whether to track gradients during training
