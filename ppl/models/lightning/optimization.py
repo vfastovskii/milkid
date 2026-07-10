@@ -5,6 +5,7 @@ import traceback
 import torch.nn as nn
 import torch.optim as optim
 from ppl.config.trainer_optim_config import TrainerOptimConfig
+from ppl.models.lightning._helpers import log_memory_usage, split_params_for_weight_decay
 
 LOGGER = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ class OptimizationMethods(nn.Module):
         dict or Optimizer
             Optimizer configuration for PyTorch Lightning
         """
-        self._log_memory_usage("configure_optimizers")
+        log_memory_usage("configure_optimizers")
 
         try:
             # Extract optimizer config from hparams
@@ -47,18 +48,18 @@ class OptimizationMethods(nn.Module):
             else:
                 self_attention_module = None
 
-            embedder_weights, embedder_biases_norms = self._split_params_for_weight_decay(embedder_module)
+            embedder_weights, embedder_biases_norms = split_params_for_weight_decay(embedder_module)
             if self_attention_module is not None:
-                self_attention_weights, self_attention_biases_norms = self._split_params_for_weight_decay(
+                self_attention_weights, self_attention_biases_norms = split_params_for_weight_decay(
                     self_attention_module
                 )
             else:
                 self_attention_weights, self_attention_biases_norms = [], []
-            aggregator_weights, aggregator_biases_norms = self._split_params_for_weight_decay(self.core.aggregator)
-            predictor_weights, predictor_biases_norms = self._split_params_for_weight_decay(self.core.predictor)
+            aggregator_weights, aggregator_biases_norms = split_params_for_weight_decay(self.core.aggregator)
+            predictor_weights, predictor_biases_norms = split_params_for_weight_decay(self.core.predictor)
             active_query_builder = getattr(self.core, "active_query_builder", None)
             if active_query_builder is not None:
-                active_query_weights, active_query_biases_norms = self._split_params_for_weight_decay(
+                active_query_weights, active_query_biases_norms = split_params_for_weight_decay(
                     active_query_builder
                 )
             else:

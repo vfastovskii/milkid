@@ -14,17 +14,14 @@ from ppl.config.trainer_optim_config import TrainerOptimConfig
 from ppl.models.core import MILCore
 from ppl.models.gradient_tracking import GradientTracker
 
-from ppl.models.lightning.memory_management import MemoryManagement
-from ppl.models.lightning.parameter_utils import ParameterManagement
 from ppl.models.lightning.training import TrainingMethods
 from ppl.models.lightning.optimization import OptimizationMethods
+from ppl.models.lightning._helpers import log_memory_usage, log_model_size
 
 LOGGER = logging.getLogger(__name__)
 
 # Lightning‑native MIL model wrapper
 class MILModelLightningWrapper(
-    MemoryManagement,
-    ParameterManagement,
     TrainingMethods,
     OptimizationMethods,
     pl.LightningModule
@@ -60,10 +57,7 @@ class MILModelLightningWrapper(
         self._epoch_loss_counts = {"train": 0, "val": 0, "test": 0}
         self.optim_cfg = optim_cfg
 
-        # Track memory usage
-        self._peak_memory_gb = 0.0
-        self._memory_snapshots = []
-        self._log_memory_usage("Initialization")
+        log_memory_usage("Initialization")
 
         # Hyper‑params snapshot for Lightning loggers / checkpoints
         if dc.is_dataclass(optim_cfg):
@@ -120,4 +114,4 @@ class MILModelLightningWrapper(
             self.gradient_tracker = GradientTracker(self.core)
 
         # Log model size
-        self._log_model_size()
+        log_model_size(self)

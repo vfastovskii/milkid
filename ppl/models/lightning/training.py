@@ -5,6 +5,8 @@ import traceback
 import torch
 import torch.nn as nn
 
+from ppl.models.lightning._helpers import log_memory_usage
+
 LOGGER = logging.getLogger(__name__)
 
 class TrainingMethods(nn.Module):
@@ -859,11 +861,11 @@ class TrainingMethods(nn.Module):
         if stage == "train":
             # Only log every 100 steps or so (0.5% probability)
             if torch.rand(1).item() < 0.005:
-                self._log_memory_usage(f"{stage}_step", log_level="debug")
+                log_memory_usage(f"{stage}_step", log_level="debug")
         else:
             # For validation and test, we can log more frequently
             if torch.rand(1).item() < 0.05:  # 5% probability
-                self._log_memory_usage(f"{stage}_step", log_level="debug")
+                log_memory_usage(f"{stage}_step", log_level="debug")
 
         # Unpack batch - expecting tuple format (bags, labels, bag_ids, padding_mask) from collate_mil
         try:
