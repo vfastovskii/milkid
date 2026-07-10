@@ -54,6 +54,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         )
 
         parser.add_argument(
+            "--device",
+            default=None,
+            type=str.lower,
+            choices=["auto", "cpu", "gpu"],
+            help=(
+                "Compute device, overriding the config's trainer.device.\n"
+                "  auto: CUDA if present, else MPS, else CPU\n"
+                "  gpu:  CUDA if present, else MPS, else CPU\n"
+                "  cpu:  force CPU (bitwise-reproducible; GPUs are not)"
+            ),
+        )
+
+        parser.add_argument(
             "--log-level",
             default="INFO",
             choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
@@ -62,7 +75,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                 "Default: INFO"
             ),
         )
-        
+
         args = parser.parse_args(argv)
 
         # Set default config path if not specified

@@ -43,7 +43,7 @@ def resolve_device(requested: str = "auto") -> str:
         return "cpu"
     if torch.cuda.is_available():
         return "cuda"
-    if _mps_available() and requested in ("auto", "mps"):
+    if _mps_available() and requested in ("auto", "mps", "gpu"):
         return "mps"
     if requested in ("cuda", "gpu"):
         LOGGER.warning(

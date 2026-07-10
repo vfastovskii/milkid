@@ -13,13 +13,15 @@ from ppl.utils.reproducibility import (
 )
 
 
-def configure_pipeline(config_path: Path) -> PipelineOrchestrator:
+def configure_pipeline(config_path: Path, device: str | None = None) -> PipelineOrchestrator:
     """Configure and build the pipeline from the YAML config file.
 
     Parameters
     ----------
     config_path : Path
         Path to the YAML configuration file
+    device : str, optional
+        Overrides ``trainer.device`` from the config (``auto`` / ``cpu`` / ``gpu``).
 
     Returns
     -------
@@ -37,7 +39,7 @@ def configure_pipeline(config_path: Path) -> PipelineOrchestrator:
         if not config_path.is_file():
             raise FileNotFoundError(f"Config file not found: {config_path}")
         logging.getLogger("milk").info("Config: %s", config_path.name)
-        return build_pipeline_from_config(yaml_path=config_path)
+        return build_pipeline_from_config(yaml_path=config_path, device=device)
     except Exception as e:
         logging.error("Failed to configure pipeline: %s", e)
         raise
@@ -62,7 +64,9 @@ def execute_pipeline(args: argparse.Namespace) -> None:
         check_determinism()
 
         # Configure pipeline from config file
-        pipeline = configure_pipeline(config_path=args.ppl_cfg_path)
+        pipeline = configure_pipeline(
+            config_path=args.ppl_cfg_path, device=getattr(args, "device", None)
+        )
             
         logging.debug("Running pipeline ...")
         pipeline.run()

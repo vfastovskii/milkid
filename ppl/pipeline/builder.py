@@ -86,7 +86,7 @@ def with_timeout(seconds: int, default_value: Optional[Any] = None) -> Callable[
 
 
 @with_timeout(60)  # 60-second timeout for config loading
-def build_pipeline_from_config(yaml_path: str | Path) -> "PipelineOrchestrator":
+def build_pipeline_from_config(yaml_path: str | Path, device: str | None = None) -> "PipelineOrchestrator":
     """Build a pipeline from a YAML configuration file with robust error handling.
 
     Parameters
@@ -116,6 +116,11 @@ def build_pipeline_from_config(yaml_path: str | Path) -> "PipelineOrchestrator":
         # Load and validate configuration
         LOGGER.info(f"Loading pipeline configuration from {yaml_path}")
         ppl_cfg = PipelineConfig.from_yaml(yaml_path)
+
+        # CLI --device overrides the config's trainer.device (resolved downstream).
+        if device:
+            ppl_cfg.trainer.device = device
+            logging.getLogger("milk").info("Device: %s (from --device)", device)
 
         # Import PipelineOrchestrator here to avoid circular imports
         from ppl.pipeline.orchestrator import PipelineOrchestrator
