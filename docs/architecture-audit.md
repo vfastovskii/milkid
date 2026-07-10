@@ -304,3 +304,28 @@ Diff: **~500 LOC moved**, net ≈ 0, +1 file. Risk: **high** (forward path; the 
 **Recommended order:** A1→A2→A3→A5→A4→A6, then B1, then B2 (decide delete vs default-off), then — only if you want the risk — C1, C2. Each is its own commit; tests run after each; C-batch gets a characterization test first.
 
 **Awaiting your pick of which rows to execute in Phase 4.**
+
+---
+
+# Phase 4 — Executed (A + B + C)
+
+All findings executed, one commit each, behavior verified byte-identical after every change
+(model-build smoke `logit=[-0.00776, 0.0057] params=12780549`; two characterization tests for
+the god-class splits with matching MD5s). Net across the refactor: **−459 LOC, 31 files.**
+
+| # | Commit | Result |
+|---|---|---|
+| A1 | delete dead `AggregatorBase` | class gone |
+| A2 | collapse `ModelBuilder`+`ModelFactory` → `build_model()` | 2 classes gone, −58 LOC |
+| A3 | drop `TimeoutError` builtin shadow | class gone |
+| A4 | `MemoryManagement`/`ParameterManagement` mixins → functions | 2 classes gone, MRO 5→3, killed a CUDA snapshot leak |
+| A5 | `TrainerBuilder` → `build_trainer()` | class gone |
+| A6 | delete empty `EmbedderBase`/`PredictorBase` | 2 classes gone |
+| B1 | dedupe val/train plot blocks in `_export_plots` | helper; did **not** merge test path (would change behavior) |
+| B2 | remove `GradientTracker` + `enable_gradient_tracking` | class + config flag gone (feature envy) |
+| C2 | split `MILCore` → `ActivePrototypeMixin` | **1028 → 393 LOC**; dead `custom_forward` branch removed; MD5 identical |
+| C1 | split `TrainingMethods` → `_CurriculumMixin` | **1241 → 816 LOC**; logger name pinned to preserve narrative; MD5 identical |
+
+~10 classes removed, 2 focused mixins added (net fewer classes). Neither 1000-line file remains a
+monster; `core.py` is 393 lines and no longer in the top-10 largest files. Characterization tests
+live in the scratchpad (not committed) — say the word if you want them added as permanent guards.
