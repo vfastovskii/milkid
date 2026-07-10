@@ -80,86 +80,69 @@ class TrainerConfig:
     validation_instance_importance_impact_weight: float = 0.5
 
 
-class TrainerBuilder:
-    """Utility class for building a PyTorch Lightning Trainer from a TrainerConfig.
+def build_trainer(
+    config: TrainerConfig,
+    logger: Optional[Any] = None,
+    callbacks: Optional[List[Callback]] = None,
+) -> pl.Trainer:
+    """Build a PyTorch Lightning Trainer from a TrainerConfig.
 
-    This class provides a clean interface for creating a trainer with the
-    appropriate configuration, including handling device-specific settings.
+    Resolves the accelerator (``auto`` -> CUDA/MPS/CPU), forces true fp32 off GPU,
+    and enforces ``min_epochs`` so the first eligible checkpoint epoch is reached.
     """
+    # Determine accelerator if not specified. Resolve "auto" (and prefer CUDA)
+    # so a config that says auto/mps still uses the GPU on a CUDA machine.
+    accelerator = config.accelerator
+    if accelerator is None:
+        dev = (config.device or "auto").lower()
+        if dev == "auto":
+            dev = (
+                "cuda" if torch.cuda.is_available()
+                else "mps" if (hasattr(torch.backends, "mps") and torch.backends.mps.is_available())
+                else "cpu"
+            )
+        if dev.startswith("cuda") or dev == "gpu":
+            accelerator = "gpu"
+        elif dev == "mps":
+            accelerator = "mps"
+        else:
+            accelerator = "cpu"
 
-    @staticmethod
-    def build(config: TrainerConfig, logger: Optional[Any] = None, 
-              callbacks: Optional[List[Callback]] = None) -> pl.Trainer:
-        """Build a PyTorch Lightning Trainer from a TrainerConfig.
+    # Only use mixed precision with CUDA. MPS/CPU are more reliable in true fp32
+    # for this MIL pipeline, especially around attention, normalization, and metrics.
+    precision = config.precision
+    if isinstance(precision, str):
+        precision = precision.strip()
+        if precision == "mixed":
+            precision = "16-mixed" if accelerator == "gpu" else "32-true"
+    if precision in {"16-mixed", "bf16-mixed"} and accelerator != "gpu":
+        precision = "32-true"
 
-        Parameters
-        ----------
-        config : TrainerConfig
-            Configuration for the trainer
-        logger : Optional[Any]
-            Logger to use with the trainer
-        callbacks : Optional[List[Callback]]
-            Callbacks to use with the trainer
+    # Create trainer kwargs dict to allow conditional inclusion of parameters
+    trainer_kwargs = {
+        "max_epochs": config.max_epochs,
+        "accelerator": accelerator,
+        "devices": config.devices,
+        "deterministic": config.deterministic,
+        "precision": precision,
+        "logger": logger,
+        "callbacks": callbacks,
+        "log_every_n_steps": config.log_every_n_steps,
+        "enable_checkpointing": config.enable_checkpointing,
+        "enable_progress_bar": config.enable_progress_bar,
+        "enable_model_summary": config.enable_model_summary,
+        "num_sanity_val_steps": config.num_sanity_val_steps,
+    }
+    min_epochs = int(config.min_epochs or 0)
+    checkpoint_min_epoch = int(getattr(config, "checkpoint_min_epoch", 0) or 0)
+    if checkpoint_min_epoch > 0:
+        # Lightning displays epochs as zero-based indices. If epoch 30 is the
+        # first eligible checkpoint, training must complete at least 31 epochs.
+        min_epochs = max(min_epochs, checkpoint_min_epoch + 1)
+    if min_epochs > 0:
+        trainer_kwargs["min_epochs"] = min_epochs
+    # Only include strategy if it's not None
+    if config.strategy is not None:
+        trainer_kwargs["strategy"] = config.strategy
 
-        Returns
-        -------
-        pl.Trainer
-            Configured PyTorch Lightning Trainer
-        """
-
-        # Determine accelerator if not specified. Resolve "auto" (and prefer CUDA)
-        # so a config that says auto/mps still uses the GPU on a CUDA machine.
-        accelerator = config.accelerator
-        if accelerator is None:
-            dev = (config.device or "auto").lower()
-            if dev == "auto":
-                dev = (
-                    "cuda" if torch.cuda.is_available()
-                    else "mps" if (hasattr(torch.backends, "mps") and torch.backends.mps.is_available())
-                    else "cpu"
-                )
-            if dev.startswith("cuda") or dev == "gpu":
-                accelerator = "gpu"
-            elif dev == "mps":
-                accelerator = "mps"
-            else:
-                accelerator = "cpu"
-
-        # Only use mixed precision with CUDA. MPS/CPU are more reliable in true fp32
-        # for this MIL pipeline, especially around attention, normalization, and metrics.
-        precision = config.precision
-        if isinstance(precision, str):
-            precision = precision.strip()
-            if precision == "mixed":
-                precision = "16-mixed" if accelerator == "gpu" else "32-true"
-        if precision in {"16-mixed", "bf16-mixed"} and accelerator != "gpu":
-            precision = "32-true"
-
-        # Create trainer kwargs dict to allow conditional inclusion of parameters
-        trainer_kwargs = {
-            "max_epochs": config.max_epochs,
-            "accelerator": accelerator,
-            "devices": config.devices,
-            "deterministic": config.deterministic,
-            "precision": precision,
-            "logger": logger,
-            "callbacks": callbacks,
-            "log_every_n_steps": config.log_every_n_steps,
-            "enable_checkpointing": config.enable_checkpointing,
-            "enable_progress_bar": config.enable_progress_bar,
-            "enable_model_summary": config.enable_model_summary,
-            "num_sanity_val_steps": config.num_sanity_val_steps,
-        }
-        min_epochs = int(config.min_epochs or 0)
-        checkpoint_min_epoch = int(getattr(config, "checkpoint_min_epoch", 0) or 0)
-        if checkpoint_min_epoch > 0:
-            # Lightning displays epochs as zero-based indices. If epoch 30 is the
-            # first eligible checkpoint, training must complete at least 31 epochs.
-            min_epochs = max(min_epochs, checkpoint_min_epoch + 1)
-        if min_epochs > 0:
-            trainer_kwargs["min_epochs"] = min_epochs
-        # Only include strategy if it's not None
-        if config.strategy is not None:
-            trainer_kwargs["strategy"] = config.strategy
-
-        return pl.Trainer(**trainer_kwargs)
+    return pl.Trainer(**trainer_kwargs)

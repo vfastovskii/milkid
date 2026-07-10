@@ -18,7 +18,7 @@ from pytorch_lightning.callbacks import (
 from ppl.data.data_loader import MILDataModule
 from ppl.models.model_factory import build_model
 from ppl.config.model_builder_config import ModelBuilderConfig
-from ppl.config.trainer_config import TrainerConfig, TrainerBuilder
+from ppl.config.trainer_config import TrainerConfig, build_trainer
 from ppl.pipeline.mlflow_utils import SafeMLFlowLogger, log_metrics
 from ppl.training.artifacts import export_fit_artifacts, evaluate_on_test
 from ppl.training.callbacks import build_callbacks
@@ -142,7 +142,7 @@ class ModelTrainer:
         return build_callbacks(self)
 
     def create_trainer(self, logger: SafeMLFlowLogger) -> pl.Trainer:
-        """Create a PyTorch Lightning Trainer using TrainerBuilder.
+        """Create a PyTorch Lightning Trainer via build_trainer().
 
         Parameters
         ----------
@@ -154,11 +154,10 @@ class ModelTrainer:
         pl.Trainer
             Configured PyTorch Lightning Trainer
         """
-        # Create a trainer using TrainerBuilder
-        return TrainerBuilder.build(
+        return build_trainer(
             config=self.trainer_cfg,
             logger=logger,
-            callbacks=self.callbacks()
+            callbacks=self.callbacks(),
         )
 
     def log_hyperparams(self, logger: SafeMLFlowLogger, model: pl.LightningModule) -> None:
