@@ -16,7 +16,7 @@ from pytorch_lightning.callbacks import (
 )
 
 from ppl.data.data_loader import MILDataModule
-from ppl.models.model_builder import ModelBuilder
+from ppl.models.model_factory import build_model
 from ppl.config.model_builder_config import ModelBuilderConfig
 from ppl.config.trainer_config import TrainerConfig, TrainerBuilder
 from ppl.pipeline.mlflow_utils import SafeMLFlowLogger, log_metrics
@@ -97,7 +97,7 @@ class ModelTrainer:
             model_cfg = replace(model_cfg, predictor_kwargs=predictor_kwargs)
             LOGGER.info("[MODEL] Seeded predictor output_bias=%.4f (train mean)", output_bias)
 
-        model = ModelBuilder(model_cfg).build()
+        model = build_model(model_cfg, input_dim, self.task)
         self._attach_trainer_runtime_config(model)
         LOGGER.info("[MODEL] Model successfully built – parameters verified.")
 
