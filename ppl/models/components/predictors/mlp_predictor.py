@@ -4,7 +4,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Literal, Optional
 
-from ppl.models.components.predictors.base_predictor import PredictorBase
 
 
 class DropPath(nn.Module):
@@ -154,7 +153,7 @@ class _ResFFNBlock(nn.Module):
         return shortcut + y
 
 
-class MLPPredictor(PredictorBase):
+class MLPPredictor(nn.Module):
     r"""
     Residual MLP predictor for MIL bag-level outputs.
 

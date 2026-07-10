@@ -14,9 +14,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ppl.models.components.embedders.base_embedder import (
-    EmbedderBase,
-)
 from ppl.models.components.embedders.mlp_embedder import (
     DropPath,
     MLPEmbedder,
@@ -165,7 +162,7 @@ class BagSelfAttentionBlock(nn.Module):
         }
 
 
-class ContextualizedMLPEmbedder(EmbedderBase):
+class ContextualizedMLPEmbedder(nn.Module):
     """Local MLP embedder followed by bag-level self-attention.
 
     Input shape is [B, N, F] and output shape is [B, N, D]. The optional mask
