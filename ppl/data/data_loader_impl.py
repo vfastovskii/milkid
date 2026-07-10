@@ -771,6 +771,10 @@ def make_dataloader(ds, cfg: DataLoaderConfig, *, shuffle: bool) -> DataLoader:
 
         # Explicitly use a SequentialSampler for eval loaders to prevent any shuffling
         sampler = None if shuffle else SequentialSampler(ds)
+        if shuffle:
+            logging.getLogger("milk").info(
+                "Training batches: random shuffled sampling (batch size %d).", batch_size
+            )
         loader = DataLoader(
             ds,
             batch_size=batch_size,
