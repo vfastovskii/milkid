@@ -15,8 +15,6 @@ import torch
 import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
-import io
-from PIL import Image
 
 class GradientTracker:
     """
@@ -66,6 +64,7 @@ class GradientTracker:
             # Track input gradients (first layer weights)
             if hasattr(self.model.embedder, 'layers'):
                 # Handle both ModuleDict and ModuleList cases
+                first_layer = None
                 if hasattr(self.model.embedder.layers, 'keys'):
                     # ModuleDict case
                     if len(list(self.model.embedder.layers.keys())) > 0:
@@ -74,7 +73,7 @@ class GradientTracker:
                 elif len(self.model.embedder.layers) > 0:
                     # ModuleList case
                     first_layer = self.model.embedder.layers[0]
-                if hasattr(first_layer, 'linear') and hasattr(first_layer.linear, 'weight'):
+                if first_layer is not None and hasattr(first_layer, 'linear') and hasattr(first_layer.linear, 'weight'):
                     hook = first_layer.linear.weight.register_hook(
                         lambda grad: self._save_grad_stats('embedder_first_layer_weight', grad)
                     )
@@ -122,6 +121,7 @@ class GradientTracker:
             # Track output gradients (final layer)
             if hasattr(self.model.predictor, 'layers'):
                 # Handle both ModuleDict and ModuleList cases
+                last_layer = None
                 if hasattr(self.model.predictor.layers, 'keys'):
                     # ModuleDict case
                     if len(list(self.model.predictor.layers.keys())) > 0:
@@ -130,7 +130,7 @@ class GradientTracker:
                 elif len(self.model.predictor.layers) > 0:
                     # ModuleList case
                     last_layer = self.model.predictor.layers[-1]
-                if hasattr(last_layer, 'linear') and hasattr(last_layer.linear, 'weight'):
+                if last_layer is not None and hasattr(last_layer, 'linear') and hasattr(last_layer.linear, 'weight'):
                     hook = last_layer.linear.weight.register_hook(
                         lambda grad: self._save_grad_stats('predictor_last_layer_weight', grad)
                     )
@@ -226,13 +226,7 @@ class GradientTracker:
             ax.set_xlabel('Gradient Value')
             ax.set_ylabel('Frequency')
 
-            # Convert plot to image
-            buf = io.BytesIO()
-            plt.savefig(buf, format='png')
-            buf.seek(0)
-            img = Image.open(buf)
-
-            # Log image
+            # Log the matplotlib figure directly to MLflow.
             logger.experiment.log_figure(
                 run_id=logger.run_id,
                 figure=fig,

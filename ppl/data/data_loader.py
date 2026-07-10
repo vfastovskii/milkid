@@ -2,7 +2,7 @@
 
 This module provides a high-level interface for loading and preprocessing data for multiple-instance learning.
 Implementation details are in separate modules:
-- mil_dataset.py: Contains the MILDataset class
+- dataset.py: Contains the MILDataset class
 - data_loader_impl.py: Contains helper functions for data loading
 - data_module_impl.py: Contains implementation details for the MILDataModule class
 """
@@ -102,6 +102,9 @@ class MILDataModule(pl.LightningDataModule):
         self.scaler: Optional[Any] = None
         self.feature_names: List[str] = []
         self._train = self._val = self._test = None  # filled in setup()
+        # {bag_id: [conformer instance IDs]} captured during bag construction,
+        # aligned with each bag's rows (incl. "__noexp" bags) for attention labels.
+        self.bag_conf_ids: dict[str, list[str]] = {}
 
     # Lightning API
     def setup(self, stage: str | None = None):
@@ -140,12 +143,6 @@ class MILDataModule(pl.LightningDataModule):
         if self._train is None:
             raise RuntimeError("DataModule.setup must run before creating train loader")
         return self._make_loader(self._train, shuffle=False)
-
-    def train_bag_ids(self):
-        """Return train bag IDs in dataset order."""
-        if self._train is None:
-            raise RuntimeError("DataModule.setup must run before reading train IDs")
-        return list(getattr(self._train, "_bag_ids", []))
 
     def val_bag_ids(self):
         """Return validation bag IDs in dataset order."""

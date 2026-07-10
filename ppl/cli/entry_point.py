@@ -10,7 +10,7 @@ from ppl.cli import (
     SUCCESS_EXIT_CODE,
 )
 
-def _map_exception_to_exit_code(exc: Exception) -> int:
+def _map_exception_to_exit_code(exc: BaseException) -> int:
     """Map exceptions to appropriate exit codes with corresponding log messages.
 
     Args:
@@ -42,6 +42,8 @@ def run(argv: list[str] | None = None) -> int:
         args = parse_args(argv)
         execute_pipeline(args)
         return SUCCESS_EXIT_CODE
+    except KeyboardInterrupt as e:
+        return _map_exception_to_exit_code(e)
     except Exception as e:
         return _map_exception_to_exit_code(e)
 

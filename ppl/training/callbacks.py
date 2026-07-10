@@ -1,4 +1,4 @@
-"""Lightning callback construction and conformer-id extraction for ModelTrainer.
+"""Lightning callback construction for ModelTrainer.
 
 Functions take the ``ModelTrainer`` instance (``mt``) to reuse its config and
 metric helpers; kept here to keep ModelTrainer focused on build/fit.
@@ -6,9 +6,8 @@ metric helpers; kept here to keep ModelTrainer focused on build/fit.
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Sequence
+from typing import Sequence
 
-import pandas as pd
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import (
     EarlyStopping,
@@ -18,67 +17,10 @@ from pytorch_lightning.callbacks import (
     TQDMProgressBar,
 )
 
+from ppl.pipeline.results_directory import create_results_directory
 from ppl.training.checkpoints import MinEpochModelCheckpoint
 
 LOGGER = logging.getLogger(__name__)
-
-
-def extract_conformer_ids(data_module) -> Dict[str, List[str]] | None:
-    """Extract conformer IDs consistent with bag construction rules.
-
-    - Train: exclude instances containing "_experimental_pose".
-    - Val/Test: create a full-bag entry plus a ``<bag_id>__noexp`` entry when
-      experimental poses would be removed.
-    """
-    if data_module is None:
-        LOGGER.warning("[MODEL] No data module available, cannot extract conformer IDs")
-        return None
-    try:
-        csv_path = data_module._csv
-        cfg = data_module.cfg
-        bag_col = cfg.bag_id_col
-        inst_col = cfg.inst_id_col
-        split_col = getattr(cfg, "split_col", None)
-        predefined = getattr(cfg, "predefined_split", False)
-
-        LOGGER.info(f"[MODEL] Extracting conformer IDs from {csv_path}")
-        df = pd.read_csv(csv_path)
-
-        conf_ids: Dict[str, List[str]] = {}
-
-        def add_split(split_df):
-            for bag_id, group in split_df.groupby(bag_col):
-                inst_list = list(map(str, group[inst_col].astype(str)))
-                nonexp = [iid for iid in inst_list if "_experimental_pose" not in iid]
-                conf_ids[f"{bag_id}"] = inst_list
-                if len(nonexp) > 0 and len(nonexp) < len(inst_list):
-                    conf_ids[f"{bag_id}__noexp"] = nonexp
-                elif len(inst_list) == 1 and ("_experimental_pose" in inst_list[0]):
-                    conf_ids[f"{bag_id}__noexp"] = inst_list
-
-        if predefined and split_col in df.columns:
-            # TRAIN (split==0): non-experimental only
-            for bag_id, group in df[df[split_col] == 0].groupby(bag_col):
-                inst_list = list(map(str, group[inst_col].astype(str)))
-                inst_nonexp = [iid for iid in inst_list if "_experimental_pose" not in iid]
-                if inst_nonexp:
-                    conf_ids[str(bag_id)] = inst_nonexp
-            add_split(df[df[split_col] == 1])  # VAL
-            add_split(df[df[split_col] == 2])  # TEST
-        else:
-            add_split(df)
-
-        LOGGER.info(
-            f"[MODEL] Prepared conformer IDs for {len(conf_ids)} bag keys "
-            "(with suffixes where applicable)"
-        )
-        return conf_ids
-    except Exception as e:
-        LOGGER.error(f"[MODEL] Error extracting conformer IDs: {e}")
-        import traceback
-
-        LOGGER.debug(traceback.format_exc())
-        return None
 
 
 def make_model_checkpoint(mt, **kwargs) -> ModelCheckpoint:
@@ -119,11 +61,10 @@ def make_early_stopping_callback(mt, validation_monitor: str):
 def _checkpoint_dirs(mt):
     """Return (checkpoint_dirpath, exp_dir, attention_dir) for the run."""
     if mt.experiment_name:
-        exp_dir = mt.log_save_dir.parent / mt.experiment_name
-        exp_dir.mkdir(parents=True, exist_ok=True)
-        dirpath = exp_dir / "models" / "cv"
+        exp_dir = create_results_directory(mt.experiment_name)
+        dirpath = exp_dir / "models"
         dirpath.mkdir(parents=True, exist_ok=True)
-        LOGGER.info(f"[MODEL] Saving best CV model to {dirpath}")
+        LOGGER.info(f"[MODEL] Saving best model to {dirpath}")
         attention_dir = None
         if mt.trainer_cfg.log_per_epoch:
             attention_dir = exp_dir / "attention_weights_per_epoch"
@@ -131,9 +72,9 @@ def _checkpoint_dirs(mt):
             LOGGER.info(f"[MODEL] Saving per-epoch attention weights to {attention_dir}")
         return dirpath, exp_dir, attention_dir
 
-    dirpath = mt.log_save_dir / "checkpoints"
+    dirpath = mt.results_dir / "checkpoints"
     attention_dir = (
-        mt.log_save_dir / "attention_weights_per_epoch"
+        mt.results_dir / "attention_weights_per_epoch"
         if mt.trainer_cfg.log_per_epoch
         else None
     )
@@ -162,7 +103,9 @@ def build_callbacks(mt) -> Sequence[pl.callbacks.Callback]:
         auto_insert_metric_name=False,
     )
 
-    conf_ids = extract_conformer_ids(mt.data_module)
+    # Conformer IDs captured during bag construction (guaranteed aligned with each
+    # bag's rows, including "__noexp" bags); None -> plots fall back to indices.
+    conf_ids = getattr(mt.data_module, "bag_conf_ids", None) or None
     if conf_ids is None:
         LOGGER.info("[MODEL] Using indices as instance IDs for attention weight plots")
     else:
@@ -181,7 +124,7 @@ def build_callbacks(mt) -> Sequence[pl.callbacks.Callback]:
         from ppl.training.epoch_attention_weight_logger import EpochAttentionWeightLogger
         from ppl.training.epoch_embedding_logger import EpochEmbeddingLogger
 
-        base = exp_dir if exp_dir is not None else mt.log_save_dir
+        base = exp_dir if exp_dir is not None else mt.results_dir
         embeddings_dir = base / "embeddings_per_epoch"
         embeddings_dir.mkdir(parents=True, exist_ok=True)
         LOGGER.info(f"[MODEL] Saving per-epoch embeddings to {embeddings_dir}")

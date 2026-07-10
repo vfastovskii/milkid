@@ -1,11 +1,12 @@
 """Utilities for creating and managing the results directory structure."""
 
 from pathlib import Path
+from typing import Optional
 import logging
 
 LOGGER = logging.getLogger(__name__)
 
-def create_results_directory(experiment_name: str = None) -> Path:
+def create_results_directory(experiment_name: Optional[str] = None) -> Path:
     """Create the results directory structure.
     
     Parameters

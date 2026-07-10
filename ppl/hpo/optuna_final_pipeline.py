@@ -447,21 +447,6 @@ def _confirmation_experiment_name(
     )
 
 
-def _confirmation_log_save_dir(
-    base_cfg: dict[str, Any],
-    run_index: int,
-    config_rank: int,
-    seed: int,
-) -> str:
-    base_dir = _get_by_dotted_path(base_cfg, "trainer.log_save_dir")
-    if not base_dir:
-        base_dir = "milk_optuna_log"
-    return (
-        f"{base_dir}_phase3_confirmation/"
-        f"rank{config_rank:02d}_seed{seed}_run{run_index:04d}"
-    )
-
-
 def _run_phase3_confirmation(
     *,
     args: argparse.Namespace,
@@ -494,12 +479,6 @@ def _run_phase3_confirmation(
         confirmation_overrides = {
             "data.seed": seed,
             "trainer.experiment_name": _confirmation_experiment_name(
-                runtime_base_cfg,
-                run_index,
-                config_rank,
-                seed,
-            ),
-            "trainer.log_save_dir": _confirmation_log_save_dir(
                 runtime_base_cfg,
                 run_index,
                 config_rank,
@@ -627,15 +606,6 @@ def _final_experiment_name(base_cfg: dict[str, Any], args: argparse.Namespace) -
     return f"{base_name}_final_best"
 
 
-def _final_log_save_dir(base_cfg: dict[str, Any], args: argparse.Namespace) -> str:
-    if args.final_log_save_dir:
-        return args.final_log_save_dir
-    base_dir = _get_by_dotted_path(base_cfg, "trainer.log_save_dir")
-    if not base_dir:
-        base_dir = "milk_optuna_log"
-    return f"{base_dir}_final_best"
-
-
 def _write_final_config(
     *,
     runtime_base_cfg: dict[str, Any],
@@ -648,7 +618,6 @@ def _write_final_config(
 
     final_overrides = {
         "trainer.experiment_name": _final_experiment_name(runtime_base_cfg, args),
-        "trainer.log_save_dir": _final_log_save_dir(runtime_base_cfg, args),
         "trainer.run_name": args.final_run_name,
         "trainer.log_per_epoch": bool(args.final_log_per_epoch),
         "trainer.save_attention_artifacts": bool(args.save_final_attention),
@@ -664,10 +633,9 @@ def _write_final_config(
     _write_yaml(final_cfg, final_config_path)
     LOGGER.info("[FINAL] Wrote final optimized config: %s", final_config_path)
     LOGGER.info(
-        "[FINAL] experiment_name=%s log_save_dir=%s "
+        "[FINAL] experiment_name=%s "
         "save_attention_artifacts=%s validation_instance_importance=%s",
         final_overrides["trainer.experiment_name"],
-        final_overrides["trainer.log_save_dir"],
         final_overrides["trainer.save_attention_artifacts"],
         final_overrides["trainer.validation_instance_importance_enabled"],
     )
@@ -732,7 +700,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.set_defaults(pin_memory=None)
 
     parser.add_argument("--final-experiment-name", default=None)
-    parser.add_argument("--final-log-save-dir", default=None)
     parser.add_argument("--final-run-name", default="final_best")
     parser.add_argument("--final-log-per-epoch", action="store_true")
     parser.add_argument("--save-final-attention", action="store_true", dest="save_final_attention")

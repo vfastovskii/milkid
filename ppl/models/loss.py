@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-import logging
-
 import torch
 import torch.nn as nn
 
 __all__ = ["Loss"]
-
-LOGGER = logging.getLogger(__name__)
 
 
 class Loss(nn.Module):

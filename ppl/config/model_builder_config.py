@@ -7,6 +7,12 @@ from ppl.config.trainer_optim_config import TrainerOptimConfig
 
 @dataclass(slots=True, frozen=False)
 class ModelBuilderConfig:
+    """Configuration for the embedder -> aggregator -> predictor model.
+
+    The ``*_type`` fields select component classes from the component catalog;
+    each ``*_kwargs`` dict is forwarded to the corresponding component, and
+    ``optim`` holds the optimiser and scheduler settings.
+    """
     # Model Components
     embedder_type: str = "contextualized_mlp_embedder"
     aggregator_type: str = "cluster_hier_mha"
@@ -32,7 +38,7 @@ class ModelBuilderConfig:
 
     def update(self, **kwargs) -> "ModelBuilderConfig":
         """
-        Return a new BuilderConfig with the provided overrides.
+        Return a new ModelBuilderConfig with the provided overrides.
 
         Any keyword that matches an attribute of the nested TrainerOptimConfig
         is routed there automatically.

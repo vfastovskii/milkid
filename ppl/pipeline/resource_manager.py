@@ -7,6 +7,7 @@ It provides a ResourceManager class that initializes and cleans up resources lik
 import logging
 import traceback
 from pathlib import Path
+from typing import Optional
 
 import mlflow
 
@@ -26,16 +27,16 @@ class PipelineResourceManager:
     
     def __init__(
         self,
-        log_save_dir: Path,
-        experiment_name: str = None,
-        run_name: str = None,
-        tracking_uri: str = None,
+        results_dir: Path,
+        experiment_name: Optional[str] = None,
+        run_name: Optional[str] = None,
+        tracking_uri: Optional[str] = None,
     ) -> None:
         """Initialize the resource manager.
         
         Parameters
         ----------
-        log_save_dir : Path
+        results_dir : Path
             Directory for saving logs
         experiment_name : str, optional
             Name of the MLflow experiment
@@ -49,7 +50,7 @@ class PipelineResourceManager:
         ValueError
             If MLflow logger initialization fails
         """
-        self.log_save_dir = log_save_dir
+        self.results_dir = results_dir
         self.experiment_name = experiment_name
         self.run_name = run_name
         self.tracking_uri = tracking_uri
@@ -68,16 +69,16 @@ class PipelineResourceManager:
         """
         try:
             self.mlflow_logger = create_mlflow_logger(
-                self.log_save_dir,
+                self.results_dir,
                 experiment_name=self.experiment_name,
                 run_name=self.run_name,
                 tracking_uri=self.tracking_uri,
             )
             LOGGER.info(f"{self.mlflow_logger.__class__.__name__} initialized with experiment_name: {self.experiment_name}")
         except Exception as e:
-            LOGGER.error(f"Failed to initialize {self.mlflow_logger.__class__.__name__}: {str(e)}")
-            LOGGER.debug(f"{self.mlflow_logger.__class__.__name__} initialization error details: {traceback.format_exc()}")
-            raise ValueError(f"{self.mlflow_logger.__class__.__name__} initialization failed: {str(e)}") from e
+            LOGGER.error(f"Failed to initialize MLflow logger: {str(e)}")
+            LOGGER.debug(f"MLflow logger initialization error details: {traceback.format_exc()}")
+            raise ValueError(f"MLflow logger initialization failed: {str(e)}") from e
     
     def cleanup_resources(self) -> None:
         """Clean up resources to prevent memory leaks."""

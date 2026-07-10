@@ -198,25 +198,36 @@ def process_data(self, df: pd.DataFrame, cfg: DataLoaderConfig,
 
     # Build datasets with progress reporting
     LOGGER.info("[DM] Building bags from instances")
-    tr_bags, tr_y, tr_ids = self._build_bags(df_train, cfg, "train")
+    tr_bags, tr_y, tr_ids, tr_conf_ids = self._build_bags(df_train, cfg, "train")
     tr_series_labels = self._build_bag_series_labels(
         df_train, cfg, tr_ids, "train"
     )
 
     if has_validation:
-        va_bags, va_y, va_ids = self._build_bags(df_val, cfg, "validation")
+        va_bags, va_y, va_ids, va_conf_ids = self._build_bags(df_val, cfg, "validation")
         va_series_labels = self._build_bag_series_labels(
             df_val, cfg, va_ids, "validation"
         )
     else:
         LOGGER.info("[DM] No validation set for this run")
-        va_bags, va_y, va_ids = [], np.array([], dtype=np.float32), []
+        va_bags, va_y, va_ids, va_conf_ids = [], np.array([], dtype=np.float32), [], []
         va_series_labels = None
-    
-    te_bags, te_y, te_ids = self._build_bags(df_test, cfg, "test")
+
+    te_bags, te_y, te_ids, te_conf_ids = self._build_bags(df_test, cfg, "test")
     te_series_labels = self._build_bag_series_labels(
         df_test, cfg, te_ids, "test"
     )
+
+    # Capture the exact per-bag conformer IDs (aligned with each bag's instance
+    # rows, including "__noexp" bags) so attention weights are always labeled from
+    # the same rows they were computed on — never re-derived by re-reading the CSV.
+    self.bag_conf_ids = {
+        str(bid): [str(c) for c in cids]
+        for ids_list, conf_list in (
+            (tr_ids, tr_conf_ids), (va_ids, va_conf_ids), (te_ids, te_conf_ids)
+        )
+        for bid, cids in zip(ids_list, conf_list)
+    }
 
     # Log raw statistics before scaling
     self._log_dataset_stats(
@@ -349,6 +360,11 @@ def process_data(self, df: pd.DataFrame, cfg: DataLoaderConfig,
 
     tr_cluster_ids = va_cluster_ids = te_cluster_ids = None
     if getattr(cfg, "cluster_instances", False):
+        n_bags = len(tr_bags) + len(va_bags) + len(te_bags)
+        logging.getLogger("milk").info(
+            "Clustering conformers per molecule across %d bags — this can take a few minutes…",
+            n_bags,
+        )
         LOGGER.info(
             "[CLUSTER] Clustering conformers per bag in scaled-only descriptor space"
         )

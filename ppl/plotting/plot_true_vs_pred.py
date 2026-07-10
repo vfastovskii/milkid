@@ -387,6 +387,14 @@ def plot_true_vs_pred_from_model(
         "bag_id": bag_ids
     })
 
+    # For val/test the loader yields both a full "<id>" bag (with experimental
+    # poses) and a "<id>__noexp" bag. Keep only the "__noexp" bag per molecule so
+    # the plot shows one point per molecule, without experimental poses — matching
+    # the logged metrics and the prediction CSVs. No-op for train (no "__noexp").
+    is_noexp = df["bag_id"].astype(str).str.endswith("__noexp")
+    if is_noexp.any():
+        df = df[is_noexp].reset_index(drop=True)
+
     # Create a mask for all rows
     mask = np.ones(len(df), dtype=bool)
 

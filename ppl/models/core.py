@@ -404,6 +404,27 @@ class MILCore(nn.Module):
             )
         query_weight = self._effective_active_query_weight(current_epoch)
 
+        # User-facing announcements on state transitions (via the "milk" narrative
+        # logger so they show at INFO). Per-epoch detail stays at DEBUG below.
+        run_log = logging.getLogger("milk")
+        if warmup_done and not getattr(self, "_active_proto_warmup_announced", False):
+            self._active_proto_warmup_announced = True
+            run_log.info(
+                "Active-prototype memory: warmup complete at epoch %s — bank now "
+                "collecting prototypes (queries begin at epoch %s).",
+                epoch,
+                self.active_prototype_query_start_epoch,
+            )
+        if use_active_query_now and not getattr(self, "_active_proto_query_announced", False):
+            self._active_proto_query_announced = True
+            run_log.info(
+                "Active-prototype query engaged at epoch %s (query weight %.2f, "
+                "%d active prototypes).",
+                epoch,
+                query_weight,
+                num_active,
+            )
+
         LOGGER.debug(
             "[ACTIVE_PROTO] epoch=%s warmup_done=%s update_bank=%s "
             "use_query=%s query_weight=%.3f active_prototypes=%d/%d support=%.0f "

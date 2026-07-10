@@ -1,15 +1,12 @@
 """Batch unpacking, inference, and regression metrics for artifact export."""
 from __future__ import annotations
 
-import logging
 from typing import List, Optional
 
 import numpy as np
 import pandas as pd
 import pytorch_lightning as pl
 import torch
-
-LOGGER = logging.getLogger(__name__)
 
 
 def unpack_batch(batch):

@@ -87,7 +87,7 @@ def initialize_pipeline_components(cfg: PipelineConfig) -> Tuple[
     # Initialize MLflow experiment logger
     try:
         resource_manager = PipelineResourceManager(
-            log_save_dir=config_manager.log_save_dir,
+            results_dir=config_manager.results_dir,
             experiment_name=config_manager.trainer_cfg.experiment_name,
             run_name=config_manager.trainer_cfg.run_name,
             tracking_uri=config_manager.trainer_cfg.tracking_uri,
@@ -102,7 +102,7 @@ def initialize_pipeline_components(cfg: PipelineConfig) -> Tuple[
             data_cfg=config_manager.data_cfg,
             model_cfg=config_manager.model_cfg,
             trainer_cfg=config_manager.trainer_cfg,
-            log_save_dir=config_manager.log_save_dir,
+            results_dir=config_manager.results_dir,
             task=config_manager.task,
             seed=config_manager.seed,
         )

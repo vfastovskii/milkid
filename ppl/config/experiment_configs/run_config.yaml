@@ -2,7 +2,7 @@
 task: regression
 
 data:
-  csv_path: ppl/data/bace809_3d_fp_5fp_200c_05prune_6kcal_no_Hs_june_concated_splited.csv
+  csv_path: ppl/data/bace809_200conf_descriptors_and_split.csv
   task: regression
   descriptor_cols: null
 
@@ -147,8 +147,7 @@ trainer:
   device: auto   # auto -> CUDA if available, else MPS, else CPU (use "cpu" for bitwise-reproducible runs)
   precision: "32-true"
   log_every_n_steps: 10  # Set to a lower value since we only have 37 training batches
-  log_save_dir: bace809_cluster_hier_mha_200c_2jul_bs16_test16_log #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_d_sc_fixlog
-  experiment_name: bace809_cluster_hier_mha_200c_2jul_bs16_test16 #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_double_scale_fix
+  experiment_name: bace809_jul8_run3 #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_double_scale_fix
   run_name: null
   tracking_uri: null
   log_per_epoch: false

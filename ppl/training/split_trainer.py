@@ -9,12 +9,9 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-import pandas as pd
-
 from ppl.data.data_loader import (
     DataLoaderConfig,
     MILDataModule,
-    resolve_path,
 )
 from ppl.pipeline.mlflow_utils import create_mlflow_logger
 from ppl.pipeline.results_directory import create_results_directory
@@ -33,7 +30,7 @@ class SplitTrainer:
         Configuration for data loading.
     model_trainer : ModelTrainer
         Model trainer instance.
-    log_save_dir : Path
+    results_dir : Path
         Directory to save logs.
     experiment_name : str
         Name of the experiment.
@@ -47,14 +44,14 @@ class SplitTrainer:
         self,
         data_cfg: DataLoaderConfig,
         model_trainer: ModelTrainer,
-        log_save_dir: Path,
+        results_dir: Path,
         experiment_name: str,
         run_name: str,
         tracking_uri: str | None = None,
     ) -> None:
         self.data_cfg = data_cfg
         self.model_trainer = model_trainer
-        self.log_save_dir = log_save_dir
+        self.results_dir = results_dir
         self.experiment_name = experiment_name
         self.run_name = run_name
         self.tracking_uri = tracking_uri
@@ -87,7 +84,7 @@ class SplitTrainer:
 
         log_split_distributions(dm, stage="train")
         logger = create_mlflow_logger(
-            save_dir=self.log_save_dir,
+            save_dir=self.results_dir,
             experiment_name=self.experiment_name,
             run_name=f"{self.run_name}-train" if self.run_name else "train",
             tracking_uri=self.tracking_uri,
@@ -138,6 +135,11 @@ class SplitTrainer:
             LOGGER.warning("[TRAIN] No best model available, skipping plot generation")
             return
 
+        logging.getLogger("milk").info(
+            "Exporting attention weights and true-vs-predicted plots for train/validation "
+            "molecules — this can take a few minutes…"
+        )
+
         try:
             from ppl.plotting.plot_attention_weights import (
                 plot_attention_weights_from_model,
@@ -152,7 +154,9 @@ class SplitTrainer:
             val_dir.mkdir(parents=True, exist_ok=True)
             train_dir.mkdir(parents=True, exist_ok=True)
 
-            conf_ids = self._build_conf_ids()
+            # Conformer IDs captured during bag construction (guaranteed aligned
+            # with each bag's rows, including "__noexp" bags).
+            conf_ids = dict(getattr(dm, "bag_conf_ids", {}) or {})
             task = self.model_trainer.task
 
             # Validation artifacts
@@ -196,12 +200,3 @@ class SplitTrainer:
 
             LOGGER.debug(traceback.format_exc())
 
-    def _build_conf_ids(self) -> dict[str, list[str]]:
-        """Map each bag ID to its conformer instance IDs from the source CSV."""
-        df = pd.read_csv(resolve_path(self.data_cfg.csv_path))
-        bag_col = self.data_cfg.bag_id_col
-        inst_col = self.data_cfg.inst_id_col
-        conf_ids: dict[str, list[str]] = {}
-        for bag_id, group in df.groupby(bag_col):
-            conf_ids[str(bag_id)] = list(map(str, group[inst_col].astype(str)))
-        return conf_ids

@@ -5,6 +5,7 @@ It provides a ConfigManager class that validates and configures data, model, and
 """
 
 import logging
+import shutil
 from pathlib import Path
 
 from ppl.config.data_loader_config import DataLoaderConfig
@@ -15,6 +16,7 @@ from ppl.config import (
 )
 from ppl.config.trainer_config import TrainerConfig
 from ppl.pipeline.config_override_utils import override_dataclass
+from ppl.pipeline.results_directory import create_results_directory
 from ppl.utils.reproducibility import resolve_device, set_deterministic
 
 # Global logging
@@ -49,7 +51,7 @@ class PipelineConfigManager:
         self.trainer_cfg = None
         self.task = None
         self.seed = None
-        self.log_save_dir = None
+        self.results_dir = None
 
         # Validate and configure
         self.validate_config()
@@ -74,10 +76,6 @@ class PipelineConfigManager:
         # Validate trainer configuration
         if not hasattr(self.cfg, 'trainer') or self.cfg.trainer is None:
             raise ValueError("Missing trainer configuration section")
-
-        # Validate log directory
-        if not hasattr(self.cfg.trainer, 'log_save_dir') or not self.cfg.trainer.log_save_dir:
-            raise ValueError("Missing required 'log_save_dir' in trainer configuration")
 
     def configure_data(self) -> None:
         """Set up data configuration."""
@@ -118,28 +116,30 @@ class PipelineConfigManager:
             LOGGER.info("Resolved device '%s' -> '%s'", self.trainer_cfg.device, resolved)
         self.trainer_cfg.device = resolved
 
-        # Ensure the log directory is a Path and exists
-        self.log_save_dir: Path = Path(self.trainer_cfg.log_save_dir).expanduser()
-        self.log_save_dir.mkdir(parents=True, exist_ok=True)
+        # Consolidate every run output under results/<experiment_name>/ so the run
+        # is self-contained and nothing is written to the project root. Without an
+        # experiment name, outputs go directly under results/.
+        self.results_dir: Path = create_results_directory(self.trainer_cfg.experiment_name)
+
+        # Save a copy of the exact config used for this run next to the results.
+        self._save_run_config(self.results_dir)
+
+    def _save_run_config(self, results_dir: Path) -> None:
+        """Copy the source YAML config into the results dir for reproducibility."""
+        src = getattr(self.cfg, "source_path", None)
+        if not src:
+            return
+        try:
+            src = Path(src)
+            if src.exists():
+                dst = results_dir / "config.yaml"
+                shutil.copyfile(src, dst)
+                LOGGER.info("Saved run config to %s", dst)
+        except Exception as e:
+            LOGGER.warning("Failed to save run config: %s", e)
 
     def configure_reproducibility(self) -> None:
         """Configure deterministic behavior for reproducibility."""
-        # Use the seed from data config or default to 42
-        seed = getattr(self.data_cfg, 'seed', 42)
+        seed = self.seed  # resolved in configure_data
         LOGGER.info(f"Setting global seed to {seed}")
         set_deterministic(seed=seed)
-
-    def get_shared_config(self) -> dict:
-        """Get shared configuration parameters for pipeline components.
-
-        Returns
-        -------
-        dict
-            Dictionary containing shared configuration parameters
-        """
-        return {
-            'log_save_dir': self.log_save_dir,
-            'experiment_name': self.trainer_cfg.experiment_name,
-            'run_name': self.trainer_cfg.run_name,
-            'tracking_uri': self.trainer_cfg.tracking_uri,
-        }

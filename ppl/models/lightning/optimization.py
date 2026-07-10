@@ -14,17 +14,11 @@ class OptimizationMethods(nn.Module):
     def configure_optimizers(self):
         """Configure optimizers and learning rate schedulers.
 
-        This method supports multiple optimizers and schedulers:
-        - AdamW (default)
-        - SGD with momentum
-        - RMSprop
-
-        And multiple schedulers:
+        The optimizer is AdamW with per-component parameter groups. Supported
+        schedulers:
         - None (constant learning rate)
         - Cosine annealing
         - Reduce on plateau (default)
-        - One-cycle policy
-        - Step decay
 
         Returns
         -------
@@ -38,9 +32,6 @@ class OptimizationMethods(nn.Module):
             cfg = TrainerOptimConfig(
                 **{k: v for k, v in self.hparams.items() if k in TrainerOptimConfig.__annotations__}
             )
-
-            # Get optimizer type from config or use default
-            optimizer_type = getattr(cfg, "optimizer_type", "adamw").lower()
 
             # Always use different learning rates for embedder, aggregator, and predictor
             # Get the base learning rate
@@ -191,36 +182,17 @@ class OptimizationMethods(nn.Module):
                 )
             LOGGER.info(f"Weight decay: {cfg.weight_decay}")
 
-            # Create optimizer based on type
-            if optimizer_type == "sgd":
-                momentum = getattr(cfg, "momentum", 0.9)
-                nesterov = getattr(cfg, "nesterov", True)
-                opt = optim.SGD(
-                    param_groups, 
-                    lr=base_lr,  # This will be overridden by param_groups
-                    momentum=momentum,
-                    nesterov=nesterov
-                )
-                LOGGER.info(f"Using SGD optimizer with base_lr={base_lr}, momentum={momentum}, nesterov={nesterov}")
-            elif optimizer_type == "rmsprop":
-                alpha = getattr(cfg, "alpha", 0.99)
-                opt = optim.RMSprop(
-                    param_groups, 
-                    lr=base_lr,  # This will be overridden by param_groups
-                    alpha=alpha
-                )
-                LOGGER.info(f"Using RMSprop optimizer with base_lr={base_lr}, alpha={alpha}")
-            else:  # default to AdamW
-                beta1 = getattr(cfg, "beta1", 0.9)
-                beta2 = getattr(cfg, "beta2", 0.999)
-                eps = getattr(cfg, "eps", 1e-8)
-                opt = optim.AdamW(
-                    param_groups, 
-                    lr=base_lr,  # This will be overridden by param_groups
-                    betas=(beta1, beta2),
-                    eps=eps  # Add epsilon parameter for numerical stability
-                )
-                LOGGER.info(f"Using AdamW optimizer with base_lr={base_lr}, betas=({beta1}, {beta2}), eps={eps}")
+            # Build the AdamW optimizer over the component parameter groups.
+            beta1 = getattr(cfg, "beta1", 0.9)
+            beta2 = getattr(cfg, "beta2", 0.999)
+            eps = getattr(cfg, "eps", 1e-8)
+            opt = optim.AdamW(
+                param_groups,
+                lr=base_lr,  # overridden per-group by param_groups
+                betas=(beta1, beta2),
+                eps=eps,
+            )
+            LOGGER.info(f"Using AdamW optimizer with base_lr={base_lr}, betas=({beta1}, {beta2}), eps={eps}")
 
             # Return optimizer if no scheduler is requested
             if cfg.scheduler == "none":
@@ -235,37 +207,6 @@ class OptimizationMethods(nn.Module):
                     eta_min=float(cfg.eta_min)
                 )
                 LOGGER.info(f"Using cosine annealing scheduler with T_max={cfg.lr_t_max}, eta_min={cfg.eta_min}")
-                return {"optimizer": opt, "lr_scheduler": sched}
-
-            elif cfg.scheduler == "one_cycle":
-                # One-cycle policy for super-convergence
-                max_lr = getattr(cfg, "max_lr", cfg.lr * 10)
-                steps_per_epoch = getattr(cfg, "steps_per_epoch", 100)
-                epochs = getattr(cfg, "max_epochs", 100)
-                total_steps = steps_per_epoch * epochs
-
-                sched = optim.lr_scheduler.OneCycleLR(
-                    opt,
-                    max_lr=max_lr,
-                    total_steps=total_steps,
-                    pct_start=0.3,
-                    div_factor=25.0,
-                    final_div_factor=10000.0
-                )
-                LOGGER.info(f"Using one-cycle scheduler with max_lr={max_lr}, total_steps={total_steps}")
-                return {"optimizer": opt, "lr_scheduler": sched}
-
-            elif cfg.scheduler == "step":
-                # Step decay
-                step_size = getattr(cfg, "step_size", 30)
-                gamma = getattr(cfg, "gamma", 0.1)
-
-                sched = optim.lr_scheduler.StepLR(
-                    opt,
-                    step_size=step_size,
-                    gamma=gamma
-                )
-                LOGGER.info(f"Using step decay scheduler with step_size={step_size}, gamma={gamma}")
                 return {"optimizer": opt, "lr_scheduler": sched}
 
             else:  # default to plateau
@@ -291,7 +232,7 @@ class OptimizationMethods(nn.Module):
                         if hasattr(self.trainer, 'datamodule') and self.trainer.datamodule is not None:
                             val_dataloader = self.trainer.datamodule.val_dataloader()
                             has_val_data = val_dataloader is not None and len(val_dataloader) > 0
-                except:
+                except Exception:
                     # Fallback to configuration-based detection
                     val_partition = self.hparams.get("val_partition", getattr(cfg, "val_partition", True))
                     has_val_data = val_partition

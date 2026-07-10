@@ -12,15 +12,19 @@ SIGINT_EXIT_CODE = 130  # POSIX SIGINT (128+2)
 DEFAULT_SEED = 42  # Fixed seed for reproducibility
 
 def get_default_config_path() -> Path:
-    """Get the default configuration path."""
-    try:
-        # ppl/cli/pipeline_setup_utils.py -> ppl/
-        return Path(__file__).parent.parent / "config/experiment_configs/run_config.yaml"
-    except NameError:
-        # Fallback if __file__ is not available
-        return Path.cwd() / "ppl/config/experiment_configs/run_config.yaml"
+    """Return the path to the default run config bundled with the package."""
+    # ppl/cli/pipeline_setup_utils.py -> ppl/
+    return Path(__file__).parent.parent / "config/experiment_configs/run_config.yaml"
 
 DEFAULT_CONFIG_PATH = get_default_config_path()
+
+
+def _default_config_display() -> Path:
+    """Config path shown in --help, made relative to cwd when possible."""
+    try:
+        return DEFAULT_CONFIG_PATH.relative_to(Path.cwd())
+    except ValueError:
+        return DEFAULT_CONFIG_PATH
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments for pipeline configuration."""
@@ -45,7 +49,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             type=Path,
             help=(
                 "Path to the YAML configuration file.\n"
-                f"Defaults to '{DEFAULT_CONFIG_PATH.relative_to(Path.cwd())}'."
+                f"Defaults to '{_default_config_display()}'."
             ),
         )
 

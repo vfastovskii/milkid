@@ -10,50 +10,12 @@ from pytorch_lightning.callbacks import Callback
 
 @dataclass(slots=True, frozen=False)
 class TrainerConfig:
-    """Holds all configuration parameters for the PyTorch Lightning Trainer.
+    """Configuration for the PyTorch Lightning Trainer plus this pipeline's
+    training-schedule extras: checkpointing, the optional overfit-gap early stop,
+    and the attention-refinement curriculum.
 
-    This class consolidates all trainer-related configurations in one place,
-    making it easier to configure and customize the trainer.
-
-    Parameters
-    ----------
-    max_epochs : int
-        Maximum number of epochs to train for
-    device : str
-        Device to use for training ("cuda", "cpu", "mps")
-    precision : str
-        Precision to use for training ("32", "16-mixed")
-    accelerator : Optional[str]
-        Accelerator to use ("gpu", "cpu", "mps")
-    devices : Union[int, List[int]]
-        Number of devices to use or list of device indices
-    strategy : Optional[str]
-        Strategy to use for distributed training
-    deterministic : bool
-        Whether to use deterministic algorithms
-    log_every_n_steps : int
-        How often to log metrics
-    enable_checkpointing : bool
-        Whether to enable checkpointing
-    enable_progress_bar : bool
-        Whether to enable progress bar
-    enable_model_summary : bool
-        Whether to enable model summary
-    num_sanity_val_steps : int
-        Number of validation steps to run before training
-    log_save_dir : str
-        Directory to save logs
-    experiment_name : str
-        Name of the experiment
-    run_name : Optional[str]
-        Name of the run
-    tracking_uri : Optional[str]
-        URI for tracking
-    log_per_epoch : bool
-        If True, log attention weights and embeddings at the end of every epoch. If False, only log once for the best model selected by early stopping.
-    save_attention_artifacts : bool
-        If True, export post-training attention-weight artifacts. Disable during
-        HPO sweeps so only the final selected model writes attention files.
+    Each field is documented by its inline comment below rather than an
+    exhaustive Parameters block (which went stale as fields were added).
     """
     # Basic training parameters
     max_epochs: int = 150
@@ -73,7 +35,6 @@ class TrainerConfig:
     num_sanity_val_steps: int = 0
 
     # Logging parameters
-    log_save_dir: str = "exp_log"
     experiment_name: str = "mil_exp"
     run_name: Optional[str] = None
     tracking_uri: Optional[str] = None

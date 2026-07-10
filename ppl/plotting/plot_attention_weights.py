@@ -561,19 +561,15 @@ def plot_attention_weights_from_model(
                 if conf_ids is not None and bag_id in conf_ids:
                     inst_ids = list(map(str, conf_ids[bag_id]))
                     if len(inst_ids) != len(alpha_np):
-                        # Align by truncation to the shorter length to avoid index errors
-                        L = min(len(inst_ids), len(alpha_np))
-                        LOGGER.warning(
-                            f"Number of conformer IDs ({len(inst_ids)}) doesn't match number of attention weights ({len(alpha_np)}) for bag {bag_id}. Aligning to {L}."
+                        # Never silently truncate: a length mismatch means the IDs are
+                        # not aligned with the attention weights, so labeling would
+                        # misassign attention to the wrong conformer. Fail loudly (the
+                        # per-bag handler skips this bag rather than mislabel it).
+                        raise ValueError(
+                            f"[ATTN] conformer-id / attention length mismatch for bag "
+                            f"{bag_id}: {len(inst_ids)} ids vs {len(alpha_np)} weights. "
+                            "Refusing to guess an alignment."
                         )
-                        inst_ids = inst_ids[:L]
-                        alpha_np = alpha_np[:L]
-                        if cluster_np is not None:
-                            cluster_np = cluster_np[:L]
-                        if cluster_query_mass_np is not None:
-                            cluster_query_mass_np = cluster_query_mass_np[:L]
-                        if cluster_final_mass_np is not None:
-                            cluster_final_mass_np = cluster_final_mass_np[:L]
                 else:
                     inst_ids = list(range(len(alpha_np)))
 

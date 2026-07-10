@@ -1,13 +1,14 @@
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, fields as dc_fields
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import yaml
 
 from ppl.config.data_loader_config import DataLoaderConfig
 from ppl.config.model_builder_config import ModelBuilderConfig
 from ppl.config.trainer_config import TrainerConfig
+from ppl.config.trainer_optim_config import TrainerOptimConfig
 
 LOGGER = logging.getLogger(__name__)
 
@@ -19,6 +20,8 @@ class PipelineConfig:
     data: DataLoaderConfig
     model: ModelBuilderConfig
     trainer: TrainerConfig
+    # Path to the YAML this config was loaded from (copied into the results dir).
+    source_path: Optional[Path] = None
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "PipelineConfig":
@@ -76,34 +79,45 @@ class PipelineConfig:
 
             cls._validate_config_compatibility(data_config, model_config, trainer_config)
 
-            return cls(data=data_config, model=model_config, trainer=trainer_config)
+            return cls(
+                data=data_config,
+                model=model_config,
+                trainer=trainer_config,
+                source_path=path_obj,
+            )
         except (ValueError, TypeError, KeyError) as e:
             LOGGER.error(f"Invalid configuration in {path}: {e}")
             raise ValueError(f"Configuration validation failed: {e}") from e
 
     @staticmethod
-    def _create_data_config(data_config: Dict[str, Any]) -> DataLoaderConfig:
-        """Create and validate DataLoaderConfig."""
+    def _build_section(config_cls, section: Dict[str, Any], label: str):
+        """Construct a config dataclass from a YAML section with a clear error."""
         try:
-            return DataLoaderConfig(**data_config)
+            return config_cls(**section)
         except TypeError as e:
-            raise ValueError(f"Invalid data configuration: {e}")
+            raise ValueError(f"Invalid {label} configuration: {e}")
 
-    @staticmethod
-    def _create_model_config(model_config: Dict[str, Any]) -> ModelBuilderConfig:
-        """Create and validate ModelBuilderConfig."""
-        try:
-            return ModelBuilderConfig(**model_config)
-        except TypeError as e:
-            raise ValueError(f"Invalid model configuration: {e}")
+    @classmethod
+    def _create_data_config(cls, data_config: Dict[str, Any]) -> DataLoaderConfig:
+        return cls._build_section(DataLoaderConfig, data_config, "data")
 
-    @staticmethod
-    def _create_trainer_config(trainer_config: Dict[str, Any]) -> TrainerConfig:
-        """Create and validate TrainerConfig."""
-        try:
-            return TrainerConfig(**trainer_config)
-        except TypeError as e:
-            raise ValueError(f"Invalid trainer configuration: {e}")
+    @classmethod
+    def _create_model_config(cls, model_config: Dict[str, Any]) -> ModelBuilderConfig:
+        # Coerce a raw `optim` dict into TrainerOptimConfig so `.model.optim` is a
+        # real dataclass, not a dict. Keep only known fields so unknown/typo keys
+        # stay tolerated (they are dropped-with-warning later by override_dataclass).
+        opt = model_config.get("optim")
+        if isinstance(opt, dict):
+            valid = {f.name for f in dc_fields(TrainerOptimConfig)}
+            model_config = {
+                **model_config,
+                "optim": TrainerOptimConfig(**{k: v for k, v in opt.items() if k in valid}),
+            }
+        return cls._build_section(ModelBuilderConfig, model_config, "model")
+
+    @classmethod
+    def _create_trainer_config(cls, trainer_config: Dict[str, Any]) -> TrainerConfig:
+        return cls._build_section(TrainerConfig, trainer_config, "trainer")
 
     @staticmethod
     def _validate_config_compatibility(

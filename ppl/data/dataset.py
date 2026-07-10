@@ -22,13 +22,17 @@ class MILDataset(Dataset):
         Label for each bag.
     bag_ids : Sequence[str]
         Unique identifier for each bag.
+    cluster_ids : Optional[Sequence[np.ndarray]]
+        Optional per-bag conformer cluster assignments.
+    series_labels : Optional[Sequence[str]]
+        Optional per-bag series label used for series-balanced batching.
     dtype : torch.dtype
         Data type for the bag tensors.
     """
 
     def __init__(
         self,
-        bags: Union[Sequence[np.ndarray], Dict[str, str], str],
+        bags: Sequence[np.ndarray],
         labels: np.ndarray,
         bag_ids: Sequence[str],
         *,
@@ -243,7 +247,3 @@ class MILDataset(Dataset):
         if series_label is not None:
             return bag, self._labels[idx], self._bag_ids[idx], None, series_label
         return bag, self._labels[idx], self._bag_ids[idx]
-
-    def get_memory_usage(self) -> float:
-        """Get the current memory usage of the dataset in GB."""
-        return sum(bag.element_size() * bag.nelement() for bag in self._bags) / (1024**3)

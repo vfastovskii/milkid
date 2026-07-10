@@ -30,7 +30,7 @@ class DataLoaderConfig:
 
     # loader hyper‑parameters
     batch_size: int = 1  # variable‑length bags, stick to bs=1
-    num_workers: int = os.cpu_count()
+    num_workers: int = os.cpu_count() or 1
     pin_memory: bool = True
     balance_train_batches_by_series: bool = False
 

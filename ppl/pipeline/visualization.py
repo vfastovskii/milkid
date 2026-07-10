@@ -4,6 +4,7 @@ This module provides utilities for visualizing data distributions and metrics,
 including functions for logging label distributions to MLFlow.
 """
 import logging
+import os
 import tempfile
 from typing import List
 
@@ -57,7 +58,9 @@ def log_split_distributions(dm: MILDataModule, *, stage: str):
     ax.set_ylabel("Density")
     ax.legend()
 
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-        fig.savefig(tmp.name)
-        mlflow.log_artifact(tmp.name, artifact_path=f"{stage}_label_dists")
+    # Write the figure into a temp dir that is auto-removed (no leaked PNG).
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = os.path.join(tmpdir, f"{stage}_label_dist.png")
+        fig.savefig(path)
+        mlflow.log_artifact(path, artifact_path=f"{stage}_label_dists")
     plt.close(fig)

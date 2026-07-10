@@ -1,9 +1,10 @@
 """pipeline_orchestrator.py
 
-Experiment tracking/logging is handled via MLflow.
-To launch the MLflow UI, open a new terminal window (from the milk/ root directory) and run:
+Experiment tracking/logging is handled via MLflow. Logs are written under the
+run's results directory. To launch the MLflow UI, open a new terminal window
+(from the milk/ root directory) and run:
 
-    $ mlflow ui --backend-store-uri exp_log/mlflow_logs
+    $ mlflow ui --backend-store-uri results/<experiment_name>/mlflow_logs
 
 Once running, the UI will be accessible at http://127.0.0.1:5000.
 """

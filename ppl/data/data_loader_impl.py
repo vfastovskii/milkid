@@ -198,8 +198,7 @@ def collate_mil(batch):
     # Calculate padding overhead
     total_padded_positions = batch_size * max_instances
     padding_overhead = total_padded_positions - total_instances
-    padding_efficiency = (total_instances / total_padded_positions) * 100 if total_padded_positions > 0 else 100
-    
+
     # Log comprehensive batch statistics
     LOGGER.debug(f"[BATCH_FORMATION] Batch statistics:")
     LOGGER.debug(f"  - Batch size: {batch_size}")
@@ -295,7 +294,7 @@ def validate_dataframe(df: pd.DataFrame, cfg: DataLoaderConfig) -> pd.DataFrame:
     return df
 
 
-def build_bags(df: pd.DataFrame, cfg: DataLoaderConfig, split_name: str = "") -> Tuple[List[np.ndarray], np.ndarray, List[str]]:
+def build_bags(df: pd.DataFrame, cfg: DataLoaderConfig, split_name: str = "") -> Tuple[List[np.ndarray], np.ndarray, List[str], List[List[str]]]:
     """Build bags from instances in the dataframe.
 
     Implements experimental pose handling:
@@ -319,13 +318,15 @@ def build_bags(df: pd.DataFrame, cfg: DataLoaderConfig, split_name: str = "") ->
 
     Returns
     -------
-    Tuple[List[np.ndarray], np.ndarray, List[str]]
-        Bags, labels, and bag IDs
+    Tuple[List[np.ndarray], np.ndarray, List[str], List[List[str]]]
+        Bags, labels, bag IDs, and per-bag instance (conformer) IDs. The instance
+        IDs are captured from the exact rows used to build each bag (same order),
+        so attention weights can be labeled without any positional re-derivation.
     """
     if df.empty:
-        return [], np.array([], dtype=np.float32), []
+        return [], np.array([], dtype=np.float32), [], []
 
-    bags, labels, ids = [], [], []
+    bags, labels, ids, inst_ids = [], [], [], []
 
     # Get unique bag IDs for progress reporting
     unique_bag_ids = df[cfg.bag_id_col].unique()
@@ -355,15 +356,16 @@ def build_bags(df: pd.DataFrame, cfg: DataLoaderConfig, split_name: str = "") ->
                 if sub_kept.empty:
                     # Fallback: retain the bag using all instances to avoid silently dropping bags
                     LOGGER.warning(f"[build_bags] Train bag {mol_id} has only experimental instances; using all instances for training")
-                    bag_data = sub[cfg.descriptor_cols].to_numpy(dtype=np.float32)
-                else:
-                    bag_data = sub_kept[cfg.descriptor_cols].to_numpy(dtype=np.float32)
+                    sub_kept = sub
+                bag_data = sub_kept[cfg.descriptor_cols].to_numpy(dtype=np.float32)
                 if not np.isfinite(bag_data).all():
                     LOGGER.warning(f"Non-finite values found in bag {mol_id}, replacing with zeros")
                     bag_data = np.nan_to_num(bag_data, nan=0.0, posinf=0.0, neginf=0.0)
                 bags.append(bag_data)
                 labels.append(label_val)
                 ids.append(str(mol_id))
+                # instance IDs from the SAME rows used for bag_data (guaranteed aligned)
+                inst_ids.append(sub_kept[inst_col].astype(str).tolist())
             else:
                 # VAL/TEST: create two bags per original where applicable
                 # 1) Full bag with ALL original instances (keeps experimental poses)
@@ -374,6 +376,7 @@ def build_bags(df: pd.DataFrame, cfg: DataLoaderConfig, split_name: str = "") ->
                 bags.append(bag_full)
                 labels.append(label_val)
                 ids.append(f"{mol_id}")
+                inst_ids.append(inst_series.tolist())  # all instances, in bag order
 
                 # 2) Always create a '__noexp' duplicate for validation/test
                 if nonexp_mask.any():
@@ -385,11 +388,14 @@ def build_bags(df: pd.DataFrame, cfg: DataLoaderConfig, split_name: str = "") ->
                     bags.append(bag_nonexp)
                     labels.append(label_val)
                     ids.append(f"{mol_id}__noexp")
+                    # instance IDs from the SAME non-experimental rows (guaranteed aligned)
+                    inst_ids.append(sub_nonexp[inst_col].astype(str).tolist())
                 else:
                     # No non-experimental instances available; duplicate full bag under '__noexp'
                     bags.append(bag_full.copy())
                     labels.append(label_val)
                     ids.append(f"{mol_id}__noexp")
+                    inst_ids.append(inst_series.tolist())
         except Exception as e:
             LOGGER.error(f"Error processing bag {mol_id}: {e}")
             # Skip this bag
@@ -397,9 +403,9 @@ def build_bags(df: pd.DataFrame, cfg: DataLoaderConfig, split_name: str = "") ->
 
     if not bags:
         LOGGER.warning(f"No valid bags found for {split_name} split")
-        return [], np.array([], dtype=np.float32), []
+        return [], np.array([], dtype=np.float32), [], []
 
-    return bags, np.asarray(labels, dtype=np.float32), ids
+    return bags, np.asarray(labels, dtype=np.float32), ids, inst_ids
 
 
 def build_bag_series_labels(

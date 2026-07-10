@@ -404,14 +404,8 @@ class MilkOptunaObjective:
             _get_by_dotted_path(self.base_config, "trainer.experiment_name")
             or "milk_optuna"
         )
-        base_log_dir = str(
-            _get_by_dotted_path(self.base_config, "trainer.log_save_dir")
-            or "optuna_log"
-        )
         experiment_name = f"{base_experiment}_optuna/{trial_name}"
-        log_save_dir = f"{base_log_dir}_optuna/{trial_name}"
         _set_by_dotted_path(config, "trainer.experiment_name", experiment_name)
-        _set_by_dotted_path(config, "trainer.log_save_dir", log_save_dir)
         _set_by_dotted_path(config, "trainer.run_name", trial_name)
 
         config_path = trial_dir / "config.yaml"

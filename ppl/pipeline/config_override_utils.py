@@ -149,9 +149,19 @@ def override_dataclass(instance: T, overrides: dict[str, Any] | Any) -> T:
                     LOGGER.debug(f"Assigned {k}={v} directly to generic type")
                     continue
 
+            # Refuse to silently truncate a non-integer float into an int field
+            # (e.g. a stray `n_strat_bins: 5.9`); skip the override with a warning
+            # instead of quietly changing a hyperparameter.
+            if current_type is int and isinstance(v, float) and not float(v).is_integer():
+                LOGGER.warning(
+                    "Refusing to truncate float override %s=%s into int field '%s'; skipping override",
+                    k, v, k,
+                )
+                continue
+
             # Try a standard constructor
             converted_val = current_type(v)
-            update_kwargs[k] = converted_val 
+            update_kwargs[k] = converted_val
             LOGGER.debug(f"Converted {k}={v} to type {current_type.__name__}")
 
         except (TypeError, ValueError) as e:

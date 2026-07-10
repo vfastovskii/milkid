@@ -21,7 +21,7 @@ from ppl.config.model_builder_config import ModelBuilderConfig
 from ppl.config.trainer_config import TrainerConfig, TrainerBuilder
 from ppl.pipeline.mlflow_utils import SafeMLFlowLogger, log_metrics
 from ppl.training.artifacts import export_fit_artifacts, evaluate_on_test
-from ppl.training.callbacks import build_callbacks, extract_conformer_ids
+from ppl.training.callbacks import build_callbacks
 from ppl.training.runtime_config import attach_trainer_runtime_config
 
 LOGGER = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ class ModelTrainer:
         Configuration for model building
     trainer_cfg : TrainerConfig
         Configuration for model training
-    log_save_dir : Path
+    results_dir : Path
         Directory to save logs
     seed : int
         Global RNG seed
@@ -54,14 +54,14 @@ class ModelTrainer:
         self,
         model_cfg: ModelBuilderConfig,
         trainer_cfg: TrainerConfig,
-        log_save_dir: Path,
+        results_dir: Path,
         seed: int,
         task: str,
-        experiment_name: str = None,
+        experiment_name: Optional[str] = None,
     ) -> None:
         self.model_cfg = model_cfg
         self.trainer_cfg = trainer_cfg
-        self.log_save_dir = log_save_dir
+        self.results_dir = results_dir
         self.seed = seed
         self.task = task
         self.max_epochs = trainer_cfg.max_epochs
@@ -133,8 +133,9 @@ class ModelTrainer:
         return self._validation_monitor_metric()
 
     def _extract_conformer_ids(self):
-        """Conformer-ID mapping for attention/embedding artifacts."""
-        return extract_conformer_ids(self.data_module)
+        """Per-bag conformer-ID mapping (captured during bag construction, aligned
+        with each bag's rows incl. "__noexp") for attention/embedding artifacts."""
+        return getattr(self.data_module, "bag_conf_ids", None) or None
 
     def callbacks(self) -> Sequence[pl.callbacks.Callback]:
         """Build the Lightning callback list for a training run."""
@@ -181,7 +182,7 @@ class ModelTrainer:
         logger.log_hyperparams(hparams)
 
 
-    def get_best_model(self) -> pl.LightningModule:
+    def get_best_model(self) -> Optional[pl.LightningModule]:
         """Get the best model from the last training run.
 
         Returns
@@ -306,7 +307,7 @@ class ModelTrainer:
         if self.experiment_name:
             save_dir = create_results_directory(self.experiment_name) / "validation"
         else:
-            save_dir = self.log_save_dir / "validation"
+            save_dir = self.results_dir / "validation"
 
         conf_ids = self._extract_conformer_ids()
         expected_val_bag_ids = (

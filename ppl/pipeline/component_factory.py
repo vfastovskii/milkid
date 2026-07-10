@@ -32,7 +32,7 @@ class PipelineComponentFactory:
         data_cfg: DataLoaderConfig,
         model_cfg: ModelBuilderConfig,
         trainer_cfg: TrainerConfig,
-        log_save_dir: Path,
+        results_dir: Path,
         task: str,
         seed: int,
     ) -> None:
@@ -46,7 +46,7 @@ class PipelineComponentFactory:
             Model configuration
         trainer_cfg : TrainerConfig
             Trainer configuration
-        log_save_dir : Path
+        results_dir : Path
             Directory for saving logs
         task : str
             Task type (e.g., 'classification', 'regression')
@@ -61,7 +61,7 @@ class PipelineComponentFactory:
         self.data_cfg = data_cfg
         self.model_cfg = model_cfg
         self.trainer_cfg = trainer_cfg
-        self.log_save_dir = log_save_dir
+        self.results_dir = results_dir
         self.task = task
         self.seed = seed
 
@@ -100,7 +100,7 @@ class PipelineComponentFactory:
             Dictionary containing shared configuration parameters
         """
         return {
-            'log_save_dir': self.log_save_dir,
+            'results_dir': self.results_dir,
             'experiment_name': self.trainer_cfg.experiment_name,
             'run_name': self.trainer_cfg.run_name,
             'tracking_uri': self.trainer_cfg.tracking_uri,
@@ -121,16 +121,16 @@ class PipelineComponentFactory:
             self.model_trainer = ModelTrainer(
                 model_cfg=self.model_cfg,
                 trainer_cfg=self.trainer_cfg,
-                log_save_dir=self.log_save_dir,
+                results_dir=self.results_dir,
                 seed=self.seed,
                 task=self.task,
                 experiment_name=shared_config.get('experiment_name'),
             )
             LOGGER.info(f"{self.model_trainer.__class__.__name__} initialized")
         except Exception as e:
-            LOGGER.error(f"Failed to initialize {self.model_trainer.__class__.__name__}: {str(e)}")
-            LOGGER.debug(f"{self.model_trainer.__class__.__name__}r initialization error details: {traceback.format_exc()}")
-            raise ValueError(f"{self.model_trainer.__class__.__name__} initialization failed: {str(e)}") from e
+            LOGGER.error(f"Failed to initialize ModelTrainer: {str(e)}")
+            LOGGER.debug(f"ModelTrainer initialization error details: {traceback.format_exc()}")
+            raise ValueError(f"ModelTrainer initialization failed: {str(e)}") from e
 
     def _create_split_trainer(self, shared_config: Dict[str, Any]) -> None:
         """Initialize the single-split trainer.

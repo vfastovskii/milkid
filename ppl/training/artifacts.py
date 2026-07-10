@@ -25,6 +25,15 @@ def _fmt(value) -> str:
         return "n/a"
 
 
+def _write_prediction_csv(rows, path) -> None:
+    """Write mol_id/true/predicted/abs_error rows (rounded to 2 dp) to a CSV."""
+    df = pd.DataFrame(rows, columns=["mol_id", "true", "predicted"])
+    df["true"] = df["true"].round(2)
+    df["predicted"] = df["predicted"].round(2)
+    df["abs_error"] = (df["true"] - df["predicted"]).abs().round(2)
+    df.to_csv(path, index=False)
+
+
 def export_fit_artifacts(mt, dm, model, best_model, val_metrics) -> None:
     """Write train_fit.csv, val.csv, and res.txt for the best/in-memory model."""
     trainer = mt._last_trainer
@@ -52,11 +61,7 @@ def export_fit_artifacts(mt, dm, model, best_model, val_metrics) -> None:
                 eval_epoch=eval_epoch, use_series_labels=True,
             )
             if train_rows:
-                train_df = pd.DataFrame(train_rows, columns=["mol_id", "true", "predicted"])
-                train_df["true"] = train_df["true"].round(2)
-                train_df["predicted"] = train_df["predicted"].round(2)
-                train_df["abs_error"] = (train_df["true"] - train_df["predicted"]).abs().round(2)
-                train_df.to_csv(results_dir / "train_fit.csv", index=False)
+                _write_prediction_csv(train_rows, results_dir / "train_fit.csv")
                 LOGGER.info(f"[MODEL] Saved train predictions to {results_dir / 'train_fit.csv'}")
             else:
                 LOGGER.info("[MODEL] No train rows collected for train_fit.csv in fit_validate")
@@ -70,11 +75,7 @@ def export_fit_artifacts(mt, dm, model, best_model, val_metrics) -> None:
                 eval_epoch=eval_epoch, use_series_labels=True,
             )
             if val_rows:
-                val_df = pd.DataFrame(val_rows, columns=["mol_id", "true", "predicted"])
-                val_df["true"] = val_df["true"].round(2)
-                val_df["predicted"] = val_df["predicted"].round(2)
-                val_df["abs_error"] = (val_df["true"] - val_df["predicted"]).abs().round(2)
-                val_df.to_csv(results_dir / "val.csv", index=False)
+                _write_prediction_csv(val_rows, results_dir / "val.csv")
                 LOGGER.info(f"[MODEL] Saved validation predictions to {results_dir / 'val.csv'}")
             else:
                 LOGGER.info("[MODEL] No validation rows collected for val.csv in fit_validate")
@@ -212,11 +213,7 @@ def evaluate_on_test(mt, dm, model) -> None:
                 stage="test", eval_epoch=test_best_epoch, use_series_labels=True,
             )
             if test_rows:
-                test_df = pd.DataFrame(test_rows, columns=["mol_id", "true", "predicted"])
-                test_df["true"] = test_df["true"].round(2)
-                test_df["predicted"] = test_df["predicted"].round(2)
-                test_df["abs_error"] = (test_df["true"] - test_df["predicted"]).abs().round(2)
-                test_df.to_csv(results_dir / "test.csv", index=False)
+                _write_prediction_csv(test_rows, results_dir / "test.csv")
                 LOGGER.info(f"[MODEL][TEST] Saved test predictions to {results_dir / 'test.csv'}")
 
             if bool(getattr(mt.trainer_cfg, "save_attention_artifacts", True)):

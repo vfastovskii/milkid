@@ -251,10 +251,12 @@ class TrainingMethods(nn.Module):
         # (the post-fit best-model re-validation) would otherwise print nan.
         if train_metrics:
             LOGGER.info(
-                "Epoch %s · train rmse %s mae %s · val rmse %s mae %s",
+                "Epoch %s · train loss %s rmse %s mae %s · val loss %s rmse %s mae %s",
                 epoch,
+                _short(getattr(self, "_last_train_loss", None)),
                 _short(train_metrics.get("train_rmse")),
                 _short(train_metrics.get("train_mae")),
+                _short(val_loss),
                 _short(val_metrics.get("rmse")),
                 _short(val_metrics.get("mae")),
             )
@@ -1093,9 +1095,6 @@ class TrainingMethods(nn.Module):
             LOGGER.error(traceback.format_exc())
             raise
 
-        # Loss logging with gradient accumulation handling
-        accumulation_steps = getattr(self.hparams, "gradient_accumulation_steps", 1)
-        
         # Ensure loss is a scalar for PyTorch Lightning logging
         if loss.numel() > 1:
             loss = loss.mean()

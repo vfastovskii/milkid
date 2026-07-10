@@ -4,6 +4,13 @@ from typing import Optional
 
 @dataclass(slots=True, frozen=False)
 class TrainerOptimConfig:
+    """Optimiser and LR-scheduler settings.
+
+    ``lr`` is the base learning rate; the per-component ``*_lr`` fields override
+    it for the embedder / self-attention / aggregator / predictor / active-query
+    parameter groups (with ``*_lr_factor`` as a relative fallback). The remaining
+    fields configure weight decay and the selected scheduler.
+    """
     lr: float = 1e-4
     embedder_lr: Optional[float] = None
     self_attention_lr: Optional[float] = None
