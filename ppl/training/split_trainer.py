@@ -13,6 +13,7 @@ from ppl.data.data_loader import (
     DataLoaderConfig,
     MILDataModule,
 )
+from ppl.data.feature_scaling import _feature_blocks
 from ppl.pipeline.mlflow_utils import create_mlflow_logger
 from ppl.pipeline.results_directory import create_results_directory
 from ppl.pipeline.visualization import log_split_distributions
@@ -75,9 +76,24 @@ class SplitTrainer:
         def _n(ds):
             return len(ds) if ds is not None else 0
 
+        # Val/test keep each molecule twice — a full bag (with experimental poses)
+        # and a "__noexp" bag (without); train is 1 bag/molecule.
+        def _bags_desc(ds):
+            n = _n(ds)
+            ids = list(getattr(ds, "_bag_ids", [])) if ds is not None else []
+            n_noexp = sum(1 for i in ids if str(i).endswith("__noexp"))
+            if 0 < n_noexp < n:
+                return f"{n} ({n - n_noexp} with exp pose + {n_noexp} __noexp)"
+            return str(n)
+
+        # Per-fingerprint-block feature breakdown (several fingerprints are concatenated).
+        blocks = ", ".join(
+            f"{name}:{len(idx)}" for name, idx in _feature_blocks(dm.feature_names).items()
+        )
         run_log.info(
-            "Data ready: %d train / %d val / %d test bags · %d features",
-            _n(dm._train), _n(dm._val), _n(dm._test), len(dm.feature_names),
+            "Data ready: %s train / %s val / %s test bags · %d features [%s]",
+            _bags_desc(dm._train), _bags_desc(dm._val), _bags_desc(dm._test),
+            len(dm.feature_names), blocks,
         )
         if self.experiment_name:
             self._save_preprocessing(dm)
