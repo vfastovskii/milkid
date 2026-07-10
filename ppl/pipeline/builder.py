@@ -24,10 +24,6 @@ LOGGER = logging.getLogger(__name__)
 # Type variable for the timeout decorator
 T = TypeVar('T')
 
-class TimeoutError(Exception):
-    """Raised when a function call times out."""
-    pass
-
 
 @contextmanager
 def timeout(seconds: int, error_message: str = "Operation timed out"):
