@@ -142,7 +142,10 @@ class _CurriculumMixin:
             return
 
         scaled_groups = []
-        target_prefixes = ("Embedder.", "Predictor.")
+        # Freeze the whole feature-extraction path — the per-instance embedder AND
+        # its within-bag self-attention/contextualizer — plus the predictor, while
+        # the aggregator and active-query builder keep learning during focus.
+        target_prefixes = ("Embedder.", "Self-attention/contextualizer.", "Predictor.")
         for optimizer in optimizers:
             for group in optimizer.param_groups:
                 name = str(group.get("name", ""))
