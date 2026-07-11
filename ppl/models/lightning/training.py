@@ -790,11 +790,6 @@ class TrainingMethods(_CurriculumMixin, nn.Module):
             != getattr(self, "current_epoch", None)
         ):
             self._consume_current_train_epoch_metrics()
-        # Order-invariant rebuild of the active-prototype bank from this epoch's
-        # accumulated candidates (no-op during warmup / when the buffer is empty).
-        rebuild = getattr(self.core, "rebuild_active_prototypes", None)
-        if callable(rebuild):
-            rebuild()
         self._log_active_prototype_epoch_summary()
 
     def on_validation_epoch_end(self):
@@ -809,6 +804,15 @@ class TrainingMethods(_CurriculumMixin, nn.Module):
         self._log_epoch_metric_summary(computed_val, val_loss)
         self._maybe_update_attention_refinement_schedule(computed_val, val_loss)
         self._maybe_stop_for_overfit_gap(computed_val, val_loss)
+        # Order-invariant rebuild of the active-prototype bank from this epoch's
+        # accumulated candidates. Done here (on_validation_epoch_end) so it runs
+        # BEFORE ModelCheckpoint saves at on_validation_end — the checkpointed bank
+        # therefore matches the saved weights' epoch. No-op when the buffer is empty
+        # (warmup, or a validation-only pass). The curriculum above intentionally
+        # read the pre-rebuild bank — the state the epoch actually trained with.
+        rebuild = getattr(self.core, "rebuild_active_prototypes", None)
+        if callable(rebuild):
+            rebuild()
         self.val_metrics.reset()
         self._reset_epoch_loss_accumulator("val")
 
