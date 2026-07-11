@@ -153,6 +153,7 @@ def build_callbacks(mt) -> Sequence[pl.callbacks.Callback]:
                     o3a_threshold=getattr(mt.trainer_cfg, "kid_o3a_threshold", 0.8),
                     active_threshold=getattr(mt.trainer_cfg, "kid_active_threshold", 7.0),
                     pred_tol=getattr(mt.trainer_cfg, "kid_pred_tol", 1.0),
+                    pdb_only=bool(getattr(mt.trainer_cfg, "kid_pdb_only", True)),
                 )
                 callbacks_list.append(KidMetricCallback(calc))
                 LOGGER.info("[MODEL] KID pose-selection metric enabled (per-epoch train + val)")

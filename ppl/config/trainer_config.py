@@ -58,6 +58,7 @@ class TrainerConfig:
     kid_o3a_threshold: float = 0.8
     kid_active_threshold: float = 7.0
     kid_pred_tol: float = 1.0
+    kid_pdb_only: bool = True  # KID only over molecules with an experimental (PDB-like id) structure
 
     # Loss-linked aggregator-focus curriculum (single LR + query authority; the
     # plain LR scheduler should be "none" when this is enabled). When the

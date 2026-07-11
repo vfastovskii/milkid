@@ -19,6 +19,7 @@ RMSD/O3A alignment is recomputed here.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Optional, Sequence
 
 import numpy as np
@@ -26,6 +27,15 @@ import pytorch_lightning as pl
 import torch
 
 LOGGER = logging.getLogger(__name__)
+
+# A molecule has an experimental (crystal) structure iff its id is a PDB-like code:
+# four alphanumerics starting with a digit, then "_" or end (e.g. 4LXA_5300, 3RSV).
+# Matches ppl/kid_calculator/filter_pdb.py — KID is only meaningful for these.
+_PDB_ID_PATTERN = re.compile(r"^[0-9][A-Za-z0-9]{3}(?:_|$)", re.IGNORECASE)
+
+
+def is_pdb_molecule(mol_id: str) -> bool:
+    return _PDB_ID_PATTERN.match(str(mol_id)) is not None
 
 
 class KidCalculator:
@@ -40,12 +50,14 @@ class KidCalculator:
         o3a_threshold: float = 0.8,
         active_threshold: float = 7.0,
         pred_tol: float = 1.0,
+        pdb_only: bool = True,
     ) -> None:
         self.top_k = tuple(int(k) for k in top_k)
         self.rmsd_threshold = float(rmsd_threshold)
         self.o3a_threshold = float(o3a_threshold)
         self.active_threshold = float(active_threshold)
         self.pred_tol = float(pred_tol)
+        self.pdb_only = bool(pdb_only)
         self._rmsd, self._o3a = self._load_sdf(sdf_path)
         LOGGER.info(
             "[KID] loaded pose properties for %d conformers (rmsd) / %d (o3a) from %s",
@@ -110,6 +122,9 @@ class KidCalculator:
         rmsd_valid = o3a_valid = n_active_correct = 0
 
         for m in molecules:
+            # KID is only defined for molecules with an experimental (PDB) structure.
+            if self.pdb_only and not is_pdb_molecule(m.get("mol_id", "")):
+                continue
             true, pred = m.get("true"), m.get("pred")
             if true is None or pred is None:
                 continue
@@ -207,8 +222,9 @@ def extract_molecule_attention(model, loader, conf_ids_map, *, stage, epoch, noe
                 a = np.asarray(a, dtype=float).reshape(-1)
                 if cids is None or len(cids) != a.size:
                     continue  # cannot align ids to attention -> skip (never mislabel)
+                mol_id = bid[: -len("__noexp")] if bid.endswith("__noexp") else bid
                 records.append(
-                    {"conf_ids": list(cids), "attention": a,
+                    {"mol_id": mol_id, "conf_ids": list(cids), "attention": a,
                      "true": float(yv[b]), "pred": float(pred[b])}
                 )
     finally:
