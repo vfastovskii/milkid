@@ -41,25 +41,18 @@ data:
   val_partition: true  # only used when predefined_split=false
 
 model:
-  embedder_type: contextualized_mlp_embedder
+  embedder_type: simple_swiglu_attn_embedder
   aggregator_type: cluster_hier_mha
-  predictor_type: mlp_predictor
+  predictor_type: simple_mlp_predictor
   task: regression
+  # Per-instance SwiGLU MLP + within-bag self-attention.
   embedder_kwargs:
-    embed_dim: 512 # test9 paper 256
-    num_mlp_layers: 3
-    mlp_expansion: 2.0
-    dropout: 0.2
-    stochastic_depth: 0.03
-
-  self_attention_kwargs:
-    num_attn_layers: 1 # 1 for paper
+    embed_dim: 512
+    num_mlp_layers: 1
+    num_attn_layers: 1
     num_heads: 2
-    attn_mlp_ratio: 1.0
-    attn_dropout: 0.0
-    attn_ffn_dropout: 0.15
-    attn_stochastic_depth: 0.02
-    attn_residual_scale_init: 0.005
+    expansion: 2.0
+    dropout: 0.2
 
   aggregator_kwargs:
     num_heads: 4
@@ -88,16 +81,14 @@ model:
 
   predictor_kwargs:
     hidden_dim: 256
-    num_layers: 2
+    num_layers: 1
     expansion: 2.0
     dropout: 0.2
-    stochastic_depth: 0.08
-    head_dropout: 0.2
     output_dim: 1
 
   active_prototype_kwargs:
     enabled: true
-    warmup_epochs: 1 # paper 6
+    warmup_epochs: 6 # paper 6
     query_start_epoch: 3 #paper10
     query_ramp_epochs: 2 #paper 10
     query_max_weight: 0.8 # paper0.5
@@ -147,7 +138,7 @@ trainer:
   device: auto   # auto -> CUDA if available, else MPS, else CPU (use "cpu" for bitwise-reproducible runs)
   precision: "32-true"
   log_every_n_steps: 10  # Set to a lower value since we only have 37 training batches
-  experiment_name: bace809_jul8_run4 #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_double_scale_fix
+  experiment_name: bace809_jul8_run6 #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_double_scale_fix
   run_name: null
   tracking_uri: null
   log_per_epoch: false
@@ -181,4 +172,4 @@ trainer:
   validation_instance_importance_min_keep: 3
   validation_instance_importance_max_keep: 12
   validation_instance_importance_attention_weight: 0.5
-  validation_instance_importance_impact_weight: 0.8 #paper 0.5
+  validation_instance_importance_impact_weight: 0.5 #paper 0.5

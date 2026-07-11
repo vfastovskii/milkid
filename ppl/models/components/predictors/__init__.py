@@ -2,3 +2,4 @@
 
 # Expose key modules at the package level
 from ppl.models.components.predictors.mlp_predictor import MLPPredictor
+from ppl.models.components.predictors.simple_mlp_predictor import SimpleMLPPredictor

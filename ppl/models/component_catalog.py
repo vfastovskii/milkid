@@ -9,15 +9,21 @@ from __future__ import annotations
 import logging
 from typing import Any, Tuple
 
-from ppl.models.components.embedders import ContextualizedMLPEmbedder
+from ppl.models.components.embedders import (
+    ContextualizedMLPEmbedder,
+    SimpleSwiGLUEmbedder,
+    SimpleSwiGLUAttnEmbedder,
+)
 from ppl.models.components.aggregators import ClusterHierarchicalAttentionAggregator
-from ppl.models.components.predictors import MLPPredictor
+from ppl.models.components.predictors import MLPPredictor, SimpleMLPPredictor
 
 LOGGER = logging.getLogger(__name__)
 
 # name -> class. Names are matched case-insensitively.
 EMBEDDERS = {
     "contextualized_mlp_embedder": ContextualizedMLPEmbedder,
+    "simple_swiglu_embedder": SimpleSwiGLUEmbedder,
+    "simple_swiglu_attn_embedder": SimpleSwiGLUAttnEmbedder,
 }
 
 AGGREGATORS = {
@@ -26,6 +32,7 @@ AGGREGATORS = {
 
 PREDICTORS = {
     "mlp_predictor": MLPPredictor,
+    "simple_mlp_predictor": SimpleMLPPredictor,
 }
 
 COMPONENT_ORDER: Tuple[str, str, str] = ("embedder", "aggregator", "predictor")

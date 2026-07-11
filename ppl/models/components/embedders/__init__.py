@@ -6,3 +6,9 @@ from ppl.models.components.embedders.contextualized_mlp_embedder import (
     BagSelfAttentionBlock,
     ContextualizedMLPEmbedder,
 )
+from ppl.models.components.embedders.simple_swiglu_embedder import (
+    SimpleSwiGLUEmbedder,
+)
+from ppl.models.components.embedders.simple_swiglu_attn_embedder import (
+    SimpleSwiGLUAttnEmbedder,
+)
