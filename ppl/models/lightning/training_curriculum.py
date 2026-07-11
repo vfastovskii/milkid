@@ -293,13 +293,21 @@ class _CurriculumMixin:
         self._focus_bad_epochs = int(getattr(self, "_focus_bad_epochs", 0)) + 1
         if self._focus_bad_epochs < patience:
             return
+        # Floor: keep the active-prototype phase running for at least
+        # min_focus_epochs so the aggregator can adapt to the injected prototypes
+        # before the loss-plateau stop is allowed to fire. Loss still controls the
+        # stop — it just cannot fire before the floor.
+        min_focus = int(getattr(self, "_attention_refinement_min_focus_epochs", 0) or 0)
+        focus_epoch = epoch - int(self._attention_refinement_trigger_epoch)
+        if focus_epoch < min_focus:
+            return
         trainer = getattr(self, "trainer", None)
         if trainer is not None:
             trainer.should_stop = True
         if not bool(getattr(self, "_attention_refinement_stop_logged", False)):
             self._attention_refinement_stop_logged = True
             logging.getLogger("milk").info(
-                "Aggregator-focus phase converged at epoch %d (val %s plateaued again "
-                "for %d epochs); stopping training.",
-                epoch, metric, patience,
+                "Aggregator-focus phase converged at epoch %d (%d focus epochs, "
+                "val %s plateaued again for %d); stopping training.",
+                epoch, focus_epoch, metric, patience,
             )

@@ -58,6 +58,10 @@ class TrainerConfig:
     attention_refinement_lr_factor: float = 0.1
     attention_refinement_query_ramp_epochs: int = 2
     attention_refinement_query_max_weight: float = 0.8
+    # Minimum number of focus-phase epochs before the loss-plateau stop may fire,
+    # so the aggregator has time to adapt to the injected active prototypes (the
+    # ramp + LR cut make val loss wobble up briefly, which would otherwise stop it).
+    attention_refinement_min_focus_epochs: int = 20
 
     # Optional validation-set KID interpretation.
     validation_instance_importance_enabled: bool = False

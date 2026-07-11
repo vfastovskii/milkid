@@ -21,6 +21,7 @@ _RUNTIME_ATTRS = (
     "attention_refinement_lr_factor",
     "attention_refinement_query_ramp_epochs",
     "attention_refinement_query_max_weight",
+    "attention_refinement_min_focus_epochs",
 )
 
 
@@ -35,11 +36,13 @@ def attach_trainer_runtime_config(
         LOGGER.info(
             "[MODEL] Aggregator-focus curriculum enabled: metric=%s plateau_patience=%d "
             "min_delta=%.4f embedder/predictor_lr_factor=%.4f "
-            "query ramps to weight=%.2f over %d epochs; stops when val plateaus again",
+            "query ramps to weight=%.2f over %d epochs; runs >= %d focus epochs then "
+            "stops when val plateaus again",
             getattr(trainer_cfg, "attention_refinement_metric", "loss"),
             int(getattr(trainer_cfg, "attention_refinement_patience", 3) or 3),
             float(getattr(trainer_cfg, "attention_refinement_min_delta", 0.005)),
             float(getattr(trainer_cfg, "attention_refinement_lr_factor", 0.1)),
             float(getattr(trainer_cfg, "attention_refinement_query_max_weight", 0.8)),
             int(getattr(trainer_cfg, "attention_refinement_query_ramp_epochs", 2) or 2),
+            int(getattr(trainer_cfg, "attention_refinement_min_focus_epochs", 20) or 20),
         )
