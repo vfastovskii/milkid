@@ -55,22 +55,22 @@ class TrainerConfig:
     overfit_gap_rel_threshold: float = 0.15
     overfit_gap_require_val_worse_than_best: bool = True
 
-    # Optional attention-refinement schedule. When the train/validation RMSE
-    # gap exceeds a configured threshold, the model keeps training instead of
-    # early-stopping: embedder/predictor LRs are reduced and the active-query
-    # path is ramped in for a fixed number of epochs.
+    # Loss-linked aggregator-focus curriculum (single LR + query authority; the
+    # plain LR scheduler should be "none" when this is enabled). When the
+    # validation metric plateaus (no improvement > min_delta for `patience`
+    # epochs) AND the active-prototype bank is ready (num_active >= min_active),
+    # the model enters an "aggregator-focus" phase: embedder/predictor LRs are
+    # reduced by `lr_factor` (the aggregator keeps its LR) and the active-prototype
+    # query is ramped in to `query_max_weight` over `query_ramp_epochs`. Training
+    # then continues until the validation metric plateaus again, at which point
+    # it stops. No hardcoded epoch counts — every transition is loss-linked.
     attention_refinement_enabled: bool = False
     attention_refinement_metric: str = "rmse"
-    attention_refinement_patience: int = 1
+    attention_refinement_patience: int = 3
     attention_refinement_min_delta: float = 0.005
-    attention_refinement_gap_threshold: float = 0.08
-    attention_refinement_rel_gap_threshold: float = 0.15
-    attention_refinement_require_val_worse_than_best: bool = True
     attention_refinement_lr_factor: float = 0.1
-    attention_refinement_query_epochs: int = 25
-    attention_refinement_query_weight_start: float = 0.0
-    attention_refinement_query_weight_end: float = 1.0
-    attention_refinement_stop_after_query_epochs: bool = True
+    attention_refinement_query_ramp_epochs: int = 2
+    attention_refinement_query_max_weight: float = 0.8
 
     # Optional validation-set KID interpretation.
     validation_instance_importance_enabled: bool = False

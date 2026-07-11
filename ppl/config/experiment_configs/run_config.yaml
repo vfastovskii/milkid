@@ -121,8 +121,8 @@ model:
     predictor_lr: 0.000009548040352097481
     active_query_lr: 0.00007017884066318825
     weight_decay: 0.002955782682076399
-    scheduler: plateau
-    lr_patience: 15 #paper 30
+    scheduler: none  # the aggregator-focus curriculum owns LR (loss-linked); no plain plateau scheduler
+    lr_patience: 15 #paper 30  # unused while scheduler=none
     factor: 0.01
     lr_t_max: 50
     eta_min: 0.000005
@@ -154,18 +154,18 @@ trainer:
   overfit_gap_abs_threshold: 0.08
   overfit_gap_rel_threshold: 0.15
   overfit_gap_require_val_worse_than_best: true
+  # Aggregator-focus curriculum (single loss-linked LR + query authority).
+  # Enters focus when val_rmse plateaus (patience epochs, min_delta) AND the
+  # active-prototype bank is ready; cuts embedder/predictor LR ×lr_factor while
+  # the aggregator keeps learning; ramps the query to query_max_weight; stops
+  # when val plateaus again.
   attention_refinement_enabled: true
   attention_refinement_metric: rmse
-  attention_refinement_patience: 1
+  attention_refinement_patience: 3
   attention_refinement_min_delta: 0.005
-  attention_refinement_gap_threshold: 0.15
-  attention_refinement_rel_gap_threshold: 0.15
-  attention_refinement_require_val_worse_than_best: true
   attention_refinement_lr_factor: 0.01
-  attention_refinement_query_epochs: 25
-  attention_refinement_query_weight_start: 0.0
-  attention_refinement_query_weight_end: 1.0
-  attention_refinement_stop_after_query_epochs: true
+  attention_refinement_query_ramp_epochs: 2
+  attention_refinement_query_max_weight: 0.8
   enable_progress_bar: true
   enable_model_summary: true
   validation_instance_importance_enabled: false

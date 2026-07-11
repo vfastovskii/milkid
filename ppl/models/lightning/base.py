@@ -52,6 +52,9 @@ class MILModelLightningWrapper(
         self._attention_refinement_trigger_epoch = None
         self._attention_refinement_lr_reduced = False
         self._attention_refinement_stop_logged = False
+        # Phase-B (aggregator-focus) plateau detector for the loss-linked stop.
+        self._focus_best_val = None
+        self._focus_bad_epochs = 0
         self._epoch_loss_sums = {"train": 0.0, "val": 0.0, "test": 0.0}
         self._epoch_loss_counts = {"train": 0, "val": 0, "test": 0}
         self.optim_cfg = optim_cfg

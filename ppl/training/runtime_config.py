@@ -25,14 +25,9 @@ _RUNTIME_ATTRS = (
     "attention_refinement_metric",
     "attention_refinement_patience",
     "attention_refinement_min_delta",
-    "attention_refinement_gap_threshold",
-    "attention_refinement_rel_gap_threshold",
-    "attention_refinement_require_val_worse_than_best",
     "attention_refinement_lr_factor",
-    "attention_refinement_query_epochs",
-    "attention_refinement_query_weight_start",
-    "attention_refinement_query_weight_end",
-    "attention_refinement_stop_after_query_epochs",
+    "attention_refinement_query_ramp_epochs",
+    "attention_refinement_query_max_weight",
 )
 
 
@@ -61,17 +56,15 @@ def attach_trainer_runtime_config(
         )
     if bool(getattr(trainer_cfg, "attention_refinement_enabled", False)):
         LOGGER.info(
-            "[MODEL] Attention-refinement schedule enabled: metric=%s "
-            "patience=%d gap>=%.4f rel_gap>=%.4f lr_factor=%.4f "
-            "query_epochs=%d query_weight=%.3f->%.3f",
+            "[MODEL] Aggregator-focus curriculum enabled: metric=%s plateau_patience=%d "
+            "min_delta=%.4f embedder/predictor_lr_factor=%.4f "
+            "query ramps to weight=%.2f over %d epochs; stops when val plateaus again",
             getattr(trainer_cfg, "attention_refinement_metric", "rmse"),
-            int(getattr(trainer_cfg, "attention_refinement_patience", 1) or 1),
-            float(getattr(trainer_cfg, "attention_refinement_gap_threshold", 0.08)),
-            float(getattr(trainer_cfg, "attention_refinement_rel_gap_threshold", 0.15)),
+            int(getattr(trainer_cfg, "attention_refinement_patience", 3) or 3),
+            float(getattr(trainer_cfg, "attention_refinement_min_delta", 0.005)),
             float(getattr(trainer_cfg, "attention_refinement_lr_factor", 0.1)),
-            int(getattr(trainer_cfg, "attention_refinement_query_epochs", 25) or 25),
-            float(getattr(trainer_cfg, "attention_refinement_query_weight_start", 0.0)),
-            float(getattr(trainer_cfg, "attention_refinement_query_weight_end", 1.0)),
+            float(getattr(trainer_cfg, "attention_refinement_query_max_weight", 0.8)),
+            int(getattr(trainer_cfg, "attention_refinement_query_ramp_epochs", 2) or 2),
         )
     if bool(getattr(trainer_cfg, "checkpoint_after_attention_refinement", False)):
         LOGGER.info(

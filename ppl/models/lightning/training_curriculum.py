@@ -18,64 +18,37 @@ class _CurriculumMixin:
     """Per-epoch metric summary + attention-refinement / overfit-gap scheduling."""
 
     def _attention_refinement_query_weight(self, epoch: int) -> float:
+        """Query weight in the aggregator-focus phase: ramp 0 -> ``query_max_weight``
+        over the smoothing window, then hold. Zero before the phase triggers."""
         trigger_epoch = getattr(self, "_attention_refinement_trigger_epoch", None)
         if trigger_epoch is None:
             return 0.0
-
-        query_epochs = max(
-            1,
-            int(getattr(self, "_attention_refinement_query_epochs", 25) or 25),
+        ramp = max(
+            1, int(getattr(self, "_attention_refinement_query_ramp_epochs", 2) or 1)
         )
-        start = float(
-            getattr(self, "_attention_refinement_query_weight_start", 0.0) or 0.0
-        )
-        end = float(
-            getattr(self, "_attention_refinement_query_weight_end", 1.0) or 1.0
+        max_weight = float(
+            getattr(self, "_attention_refinement_query_max_weight", 0.8) or 0.0
         )
         phase_epoch = max(0, int(epoch) - int(trigger_epoch))
-        progress = min(1.0, phase_epoch / float(query_epochs))
-        weight = start + (end - start) * progress
-        return float(max(0.0, min(1.0, weight)))
+        progress = min(1.0, phase_epoch / float(ramp))
+        return float(max(0.0, min(1.0, max_weight * progress)))
 
     def _attention_refinement_phase(self, epoch: int) -> str:
         if not bool(getattr(self, "_attention_refinement_enabled", False)):
             return "off"
-        trigger_epoch = getattr(self, "_attention_refinement_trigger_epoch", None)
-        if trigger_epoch is None:
+        if getattr(self, "_attention_refinement_trigger_epoch", None) is None:
             return "watch"
-
-        query_epochs = max(
-            1,
-            int(getattr(self, "_attention_refinement_query_epochs", 25) or 25),
-        )
-        phase_epoch = int(epoch) - int(trigger_epoch)
-        if phase_epoch <= 0:
-            return "triggered"
-        if phase_epoch <= query_epochs:
-            return "query_ramp"
-        return "done"
+        return "focus"
 
     def _attention_refinement_epoch_suffix(self) -> str:
         if not bool(getattr(self, "_attention_refinement_enabled", False)):
             return ""
-
         epoch = int(getattr(self, "current_epoch", 0) or 0)
         phase = self._attention_refinement_phase(epoch)
         weight = self._attention_refinement_query_weight(epoch)
-        trigger_epoch = getattr(self, "_attention_refinement_trigger_epoch", None)
-        query_epochs = max(
-            1,
-            int(getattr(self, "_attention_refinement_query_epochs", 25) or 25),
-        )
-        if trigger_epoch is None:
-            progress = "0/0"
-        else:
-            phase_epoch = max(0, min(query_epochs, epoch - int(trigger_epoch)))
-            progress = f"{phase_epoch}/{query_epochs}"
-
         return (
-            " attention_refinement="
-            f"{phase} query_ramp={progress} forced_query_weight={weight:.3f} "
+            " aggregator_focus="
+            f"{phase} forced_query_weight={weight:.3f} "
             f"lr_reduced={bool(getattr(self, '_attention_refinement_lr_reduced', False))}"
         )
 
@@ -219,57 +192,29 @@ class _CurriculumMixin:
             return
 
         trigger_epoch = getattr(self, "_attention_refinement_trigger_epoch", None)
-        if trigger_epoch is None:
+        if trigger_epoch is None or int(epoch) - int(trigger_epoch) <= 0:
             self._set_core_active_query_override(disabled=True, forced_weight=0.0)
             return
 
-        query_epochs = max(
-            1,
-            int(getattr(self, "_attention_refinement_query_epochs", 25) or 25),
-        )
-        phase_epoch = int(epoch) - int(trigger_epoch)
-        if phase_epoch <= 0:
-            self._set_core_active_query_override(disabled=True, forced_weight=0.0)
-            return
-
-        if phase_epoch <= query_epochs:
-            weight = self._attention_refinement_query_weight(epoch)
-            self._set_core_active_query_override(
-                disabled=False,
-                forced_weight=weight,
+        weight = self._attention_refinement_query_weight(epoch)
+        self._set_core_active_query_override(disabled=False, forced_weight=weight)
+        if log:
+            LOGGER.debug(
+                "[AGG_FOCUS] epoch=%d focus_epoch=%d forced_query_weight=%.3f",
+                epoch, int(epoch) - int(trigger_epoch), weight,
             )
-            if log:
-                LOGGER.debug(
-                    "[ATTN_REFINEMENT] epoch=%d query_ramp=%d/%d "
-                    "forced_query_weight=%.3f",
-                    epoch,
-                    phase_epoch,
-                    query_epochs,
-                    weight,
-                )
-            return
 
-        self._set_core_active_query_override(disabled=True, forced_weight=0.0)
-        self._mark_attention_refinement_complete()
-
-    def _mark_attention_refinement_complete(self) -> None:
-        trigger_epoch = getattr(self, "_attention_refinement_trigger_epoch", None)
-        query_epochs = max(
-            1,
-            int(getattr(self, "_attention_refinement_query_epochs", 25) or 25),
-        )
-        if bool(getattr(self, "_attention_refinement_stop_after_query_epochs", True)):
-            trainer = getattr(self, "trainer", None)
-            if trainer is not None:
-                trainer.should_stop = True
-            if not bool(getattr(self, "_attention_refinement_stop_logged", False)):
-                self._attention_refinement_stop_logged = True
-                LOGGER.debug(
-                    "[ATTN_REFINEMENT] Completed %d query-ramp epochs after "
-                    "trigger_epoch=%s; stopping training",
-                    query_epochs,
-                    trigger_epoch,
-                )
+    def _active_bank_ready(self) -> tuple[bool, int, int]:
+        """Whether the active-prototype bank has enough prototypes for the query
+        to inject — the same threshold the injection gate uses, so entering the
+        focus phase guarantees the enrichment is not a silent no-op."""
+        core = getattr(self, "core", None)
+        bank = getattr(core, "active_prototype_bank", None) if core is not None else None
+        if bank is None:
+            return False, 0, 0
+        min_active = int(getattr(core, "active_prototype_min_active", 0) or 0)
+        n_active = int(bank.num_active())
+        return n_active >= min_active, n_active, min_active
 
     def _maybe_update_attention_refinement_schedule(
         self,
@@ -280,104 +225,84 @@ class _CurriculumMixin:
             return
 
         epoch = int(getattr(self, "current_epoch", 0) or 0)
-        if getattr(self, "_attention_refinement_trigger_epoch", None) is not None:
-            self._apply_attention_refinement_phase(epoch, log=False)
-            trigger_epoch = int(getattr(self, "_attention_refinement_trigger_epoch"))
-            query_epochs = max(
-                1,
-                int(getattr(self, "_attention_refinement_query_epochs", 25) or 25),
-            )
-            if epoch >= trigger_epoch + query_epochs:
-                self._mark_attention_refinement_complete()
-            return
-
-        metric, train_float, val_float = self._attention_refinement_metric_values(
+        metric, _train_float, val_float = self._attention_refinement_metric_values(
             val_metrics,
             val_loss,
         )
-        if train_float is None or val_float is None:
-            LOGGER.debug(
-                "[ATTN_REFINEMENT] Skipping trigger check at epoch=%d; "
-                "missing train/val %s",
-                epoch,
-                metric,
-            )
+        if val_float is None:
+            LOGGER.debug("[AGG_FOCUS] epoch=%d: missing val %s; skipping", epoch, metric)
             return
 
         min_delta = float(
             getattr(self, "_attention_refinement_min_delta", 0.005) or 0.0
         )
-        gap_threshold = float(
-            getattr(self, "_attention_refinement_gap_threshold", 0.08) or 0.0
-        )
-        rel_threshold = float(
-            getattr(self, "_attention_refinement_rel_gap_threshold", 0.15) or 0.0
-        )
         patience = max(
-            1,
-            int(getattr(self, "_attention_refinement_patience", 1) or 1),
+            1, int(getattr(self, "_attention_refinement_patience", 3) or 3)
         )
-        require_val_worse = bool(
-            getattr(
-                self,
-                "_attention_refinement_require_val_worse_than_best",
-                True,
+
+        if getattr(self, "_attention_refinement_trigger_epoch", None) is None:
+            # ---- Phase A (watch): enter focus on a val plateau, once bank ready ----
+            self._apply_attention_refinement_phase(epoch)  # query stays off
+            best = getattr(self, "_attention_refinement_best_val", None)
+            if best is None or val_float < best - min_delta:
+                self._attention_refinement_best_val = val_float
+                self._attention_refinement_bad_epochs = 0
+                return
+            self._attention_refinement_bad_epochs = (
+                int(getattr(self, "_attention_refinement_bad_epochs", 0)) + 1
             )
-        )
-
-        best_val = getattr(self, "_attention_refinement_best_val", None)
-        if best_val is None or val_float < (best_val - min_delta):
-            self._attention_refinement_best_val = val_float
-            self._attention_refinement_bad_epochs = 0
+            if self._attention_refinement_bad_epochs < patience:
+                return
+            ready, n_active, min_active = self._active_bank_ready()
+            if not ready:
+                LOGGER.warning(
+                    "[AGG_FOCUS] val %s plateaued at epoch %d but the active-prototype "
+                    "bank is not ready (%d/%d active); deferring the aggregator-focus "
+                    "phase until it fills.",
+                    metric, epoch, n_active, min_active,
+                )
+                return  # stay in watch; trigger as soon as the bank is ready
+            self._attention_refinement_trigger_epoch = epoch
+            self._scale_attention_refinement_lrs()
+            self._focus_best_val = val_float
+            self._focus_bad_epochs = 0
+            self._apply_attention_refinement_phase(epoch)
+            factor = float(getattr(self, "_attention_refinement_lr_factor", 0.1) or 0.1)
+            ramp = max(
+                1, int(getattr(self, "_attention_refinement_query_ramp_epochs", 2) or 1)
+            )
+            max_w = float(
+                getattr(self, "_attention_refinement_query_max_weight", 0.8) or 0.0
+            )
+            logging.getLogger("milk").info(
+                "Aggregator-focus phase at epoch %d: val %s plateaued (%d epochs no gain) "
+                "and %d active prototypes are ready — cutting embedder/predictor LR ×%.3g "
+                "(the aggregator keeps its LR), ramping the active-prototype query to "
+                "weight %.2f over %d epochs; training continues until val plateaus again.",
+                epoch, metric, patience, n_active, factor, max_w, ramp,
+            )
             return
 
-        gap = val_float - train_float
-        rel_gap = gap / max(abs(train_float), 1e-8)
-        gap_triggered = gap >= gap_threshold or rel_gap >= rel_threshold
-        val_is_worse = val_float > (
-            float(self._attention_refinement_best_val) + min_delta
-        )
-
-        if gap_triggered and (val_is_worse or not require_val_worse):
-            self._attention_refinement_bad_epochs += 1
-        else:
-            self._attention_refinement_bad_epochs = 0
-
-        if self._attention_refinement_bad_epochs < patience:
+        # ---- Phase B (focus): hold the ramp; stop on a second val plateau ----
+        self._apply_attention_refinement_phase(epoch)
+        best = getattr(self, "_focus_best_val", None)
+        if best is None or val_float < best - min_delta:
+            self._focus_best_val = val_float
+            self._focus_bad_epochs = 0
             return
-
-        self._attention_refinement_trigger_epoch = epoch
-        self._scale_attention_refinement_lrs()
-        self._apply_attention_refinement_phase(epoch, log=False)
-
-        query_epochs = max(
-            1,
-            int(getattr(self, "_attention_refinement_query_epochs", 25) or 25),
-        )
-        logging.getLogger("milk").info(
-            "Attention refinement triggered at epoch %d (val %s worse than best, gap %.3f) — "
-            "mixing the active-prototype query into attention over the next %d epochs "
-            "(weight %.2f→%.2f), LRs scaled ×%.3g.",
-            epoch, metric, gap, query_epochs,
-            float(getattr(self, "_attention_refinement_query_weight_start", 0.0)),
-            float(getattr(self, "_attention_refinement_query_weight_end", 1.0)),
-            float(getattr(self, "_attention_refinement_lr_factor", 0.1) or 0.1),
-        )
-        LOGGER.debug(
-            "[ATTN_REFINEMENT] Triggered at epoch=%d metric=%s train=%.6f "
-            "val=%.6f best_val=%.6f gap=%.6f rel_gap=%.3f. Next %d epochs "
-            "will ramp active-query weight from %.3f to %.3f.",
-            epoch,
-            metric,
-            train_float,
-            val_float,
-            float(self._attention_refinement_best_val),
-            gap,
-            rel_gap,
-            query_epochs,
-            float(getattr(self, "_attention_refinement_query_weight_start", 0.0)),
-            float(getattr(self, "_attention_refinement_query_weight_end", 1.0)),
-        )
+        self._focus_bad_epochs = int(getattr(self, "_focus_bad_epochs", 0)) + 1
+        if self._focus_bad_epochs < patience:
+            return
+        trainer = getattr(self, "trainer", None)
+        if trainer is not None:
+            trainer.should_stop = True
+        if not bool(getattr(self, "_attention_refinement_stop_logged", False)):
+            self._attention_refinement_stop_logged = True
+            logging.getLogger("milk").info(
+                "Aggregator-focus phase converged at epoch %d (val %s plateaued again "
+                "for %d epochs); stopping training.",
+                epoch, metric, patience,
+            )
 
     def _maybe_stop_for_overfit_gap(self, val_metrics: dict, val_loss) -> None:
         if bool(getattr(self, "_attention_refinement_enabled", False)):
