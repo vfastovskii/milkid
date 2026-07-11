@@ -140,14 +140,14 @@ trainer:
   tracking_uri: null
   log_per_epoch: false
   save_attention_artifacts: true
-  checkpoint_monitor: val_rmse  # best epoch by this metric is saved; no min-epoch/refinement gating
+  checkpoint_monitor: val_loss  # best epoch by validation loss is saved; no min-epoch/refinement gating
   # Aggregator-focus curriculum (single loss-linked LR + query authority).
-  # Enters focus when val_rmse plateaus (patience epochs, min_delta) AND the
+  # Enters focus when val_loss plateaus (patience epochs, min_delta) AND the
   # active-prototype bank is ready; cuts embedder/predictor LR ×lr_factor while
   # the aggregator keeps learning; ramps the query to query_max_weight; stops
   # when val plateaus again.
   attention_refinement_enabled: true
-  attention_refinement_metric: rmse
+  attention_refinement_metric: loss
   attention_refinement_patience: 3
   attention_refinement_min_delta: 0.005
   attention_refinement_lr_factor: 0.01

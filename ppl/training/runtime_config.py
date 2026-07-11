@@ -36,7 +36,7 @@ def attach_trainer_runtime_config(
             "[MODEL] Aggregator-focus curriculum enabled: metric=%s plateau_patience=%d "
             "min_delta=%.4f embedder/predictor_lr_factor=%.4f "
             "query ramps to weight=%.2f over %d epochs; stops when val plateaus again",
-            getattr(trainer_cfg, "attention_refinement_metric", "rmse"),
+            getattr(trainer_cfg, "attention_refinement_metric", "loss"),
             int(getattr(trainer_cfg, "attention_refinement_patience", 3) or 3),
             float(getattr(trainer_cfg, "attention_refinement_min_delta", 0.005)),
             float(getattr(trainer_cfg, "attention_refinement_lr_factor", 0.1)),

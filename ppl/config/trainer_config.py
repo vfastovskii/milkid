@@ -52,7 +52,7 @@ class TrainerConfig:
     # then continues until the validation metric plateaus again, at which point
     # it stops. No hardcoded epoch counts — every transition is loss-linked.
     attention_refinement_enabled: bool = False
-    attention_refinement_metric: str = "rmse"
+    attention_refinement_metric: str = "loss"
     attention_refinement_patience: int = 3
     attention_refinement_min_delta: float = 0.005
     attention_refinement_lr_factor: float = 0.1

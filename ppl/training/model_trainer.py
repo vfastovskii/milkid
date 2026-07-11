@@ -124,8 +124,6 @@ class ModelTrainer:
             monitor = str(configured_monitor).strip()
             if monitor:
                 return monitor if monitor.startswith("val_") else f"val_{monitor}"
-        if str(self.task).lower() == "regression":
-            return "val_mae"
         return "val_loss"
 
     def _checkpoint_monitor_metric(self) -> str:

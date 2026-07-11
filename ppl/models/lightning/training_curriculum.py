@@ -112,7 +112,7 @@ class _CurriculumMixin:
 
     def _attention_refinement_metric_values(self, val_metrics: dict, val_loss):
         metric = str(
-            getattr(self, "_attention_refinement_metric", "rmse") or "rmse"
+            getattr(self, "_attention_refinement_metric", "loss") or "loss"
         ).lower()
         train_metrics = getattr(self, "_last_train_metrics", {}) or {}
         if metric == "loss":

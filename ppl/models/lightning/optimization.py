@@ -239,11 +239,7 @@ class OptimizationMethods(nn.Module):
                     has_val_data = val_partition
                 
                 if has_val_data:
-                    monitor_metric = (
-                        "val_rmse"
-                        if str(getattr(self, "task", "")).lower() == "regression"
-                        else "val_loss"
-                    )
+                    monitor_metric = "val_loss"
                     LOGGER.info(
                         "Using reduce on plateau scheduler monitoring %s "
                         "(validation data available)",
