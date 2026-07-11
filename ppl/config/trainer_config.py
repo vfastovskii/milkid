@@ -41,19 +41,6 @@ class TrainerConfig:
     log_per_epoch: bool = True
     save_attention_artifacts: bool = True
     checkpoint_monitor: Optional[str] = None
-    checkpoint_min_epoch: int = 0
-    checkpoint_after_attention_refinement: bool = False
-    checkpoint_min_query_epochs: int = 1
-
-    # Optional early stop on generalization gap. This is useful when the model
-    # keeps improving on train bags while validation error starts degrading.
-    overfit_gap_stop_enabled: bool = False
-    overfit_gap_metric: str = "rmse"
-    overfit_gap_patience: int = 2
-    overfit_gap_min_delta: float = 0.0
-    overfit_gap_abs_threshold: float = 0.10
-    overfit_gap_rel_threshold: float = 0.15
-    overfit_gap_require_val_worse_than_best: bool = True
 
     # Loss-linked aggregator-focus curriculum (single LR + query authority; the
     # plain LR scheduler should be "none" when this is enabled). When the
@@ -133,14 +120,11 @@ def build_trainer(
         "enable_model_summary": config.enable_model_summary,
         "num_sanity_val_steps": config.num_sanity_val_steps,
     }
-    min_epochs = int(config.min_epochs or 0)
-    checkpoint_min_epoch = int(getattr(config, "checkpoint_min_epoch", 0) or 0)
-    if checkpoint_min_epoch > 0:
-        # Lightning displays epochs as zero-based indices. If epoch 30 is the
-        # first eligible checkpoint, training must complete at least 31 epochs.
-        min_epochs = max(min_epochs, checkpoint_min_epoch + 1)
-    if min_epochs > 0:
-        trainer_kwargs["min_epochs"] = min_epochs
+    # Stopping is loss-controlled: the aggregator-focus curriculum stops on the
+    # validation plateau (or Lightning EarlyStopping when the curriculum is off).
+    # min_epochs is only an optional user floor — nothing forces it upward.
+    if int(config.min_epochs or 0) > 0:
+        trainer_kwargs["min_epochs"] = int(config.min_epochs)
     # Only include strategy if it's not None
     if config.strategy is not None:
         trainer_kwargs["strategy"] = config.strategy

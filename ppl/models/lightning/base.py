@@ -45,8 +45,6 @@ class MILModelLightningWrapper(
         self._last_train_metrics = {}
         self._last_train_loss = None
         self._train_epoch_metrics_consumed_epoch = None
-        self._overfit_gap_bad_epochs = 0
-        self._overfit_gap_best_val = None
         self._attention_refinement_bad_epochs = 0
         self._attention_refinement_best_val = None
         self._attention_refinement_trigger_epoch = None

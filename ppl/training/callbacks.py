@@ -18,27 +18,8 @@ from pytorch_lightning.callbacks import (
 )
 
 from ppl.pipeline.results_directory import create_results_directory
-from ppl.training.checkpoints import MinEpochModelCheckpoint
 
 LOGGER = logging.getLogger(__name__)
-
-
-def make_model_checkpoint(mt, **kwargs) -> ModelCheckpoint:
-    """ModelCheckpoint, gated by MinEpochModelCheckpoint when configured."""
-    min_epoch = int(getattr(mt.trainer_cfg, "checkpoint_min_epoch", 0) or 0)
-    monitor = kwargs.get("monitor")
-    require_refinement = bool(
-        getattr(mt.trainer_cfg, "checkpoint_after_attention_refinement", False)
-    )
-    min_query_epochs = int(getattr(mt.trainer_cfg, "checkpoint_min_query_epochs", 1) or 1)
-    if (min_epoch > 0 or require_refinement) and monitor == mt._checkpoint_monitor_metric():
-        return MinEpochModelCheckpoint(
-            min_epoch=min_epoch,
-            require_attention_refinement=require_refinement,
-            min_query_epochs=min_query_epochs,
-            **kwargs,
-        )
-    return ModelCheckpoint(**kwargs)
 
 
 def make_early_stopping_callback(mt, validation_monitor: str):
@@ -92,9 +73,11 @@ def build_callbacks(mt) -> Sequence[pl.callbacks.Callback]:
 
     dirpath, exp_dir, attention_dir = _checkpoint_dirs(mt)
 
+    # Plain best-val checkpoint: save the single best epoch by the monitored metric,
+    # whenever it occurs. No min-epoch or refinement gating — stopping and phase
+    # timing are owned by the loss-linked curriculum.
     validation_monitor = mt._checkpoint_monitor_metric()
-    ckpt_cb = make_model_checkpoint(
-        mt,
+    ckpt_cb = ModelCheckpoint(
         dirpath=dirpath,
         filename=f"{run_suffix}_ep{{epoch:03d}}",
         monitor=validation_monitor,

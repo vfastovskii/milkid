@@ -803,7 +803,6 @@ class TrainingMethods(_CurriculumMixin, nn.Module):
         self.log_dict(log_dict, sync_dist=True, add_dataloader_idx=False)
         self._log_epoch_metric_summary(computed_val, val_loss)
         self._maybe_update_attention_refinement_schedule(computed_val, val_loss)
-        self._maybe_stop_for_overfit_gap(computed_val, val_loss)
         # Order-invariant rebuild of the active-prototype bank from this epoch's
         # accumulated candidates. Done here (on_validation_epoch_end) so it runs
         # BEFORE ModelCheckpoint saves at on_validation_end — the checkpointed bank

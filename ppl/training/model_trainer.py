@@ -415,18 +415,6 @@ class ModelTrainer:
             # This ensures only one progress bar is displayed at a time
             val_metrics = trainer.validate(best_model, datamodule=dm, verbose=False)[0]
         else:
-            if bool(
-                getattr(
-                    self.trainer_cfg,
-                    "checkpoint_after_attention_refinement",
-                    False,
-                )
-            ):
-                raise RuntimeError(
-                    "No eligible best checkpoint was produced after the "
-                    "attention-refinement gate. Refusing to register last-epoch "
-                    "metrics for this trial."
-                )
             LOGGER.warning("[MODEL] Could not load best model checkpoint, using model in memory")
             if best_epoch is not None:
                 setattr(model, "_evaluation_epoch_override", best_epoch)
