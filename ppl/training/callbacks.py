@@ -22,6 +22,30 @@ from ppl.pipeline.results_directory import create_results_directory
 LOGGER = logging.getLogger(__name__)
 
 
+class _FocusPhaseModelCheckpoint(ModelCheckpoint):
+    """Best-val checkpoint restricted to the aggregator-focus phase.
+
+    Skips saving until the active-prototype query is actually engaged (focus phase
+    entered AND query weight > 0 this epoch), so the selected best model is one the
+    prototype injection has corrected the aggregator with — not an earlier
+    joint-training epoch whose evaluation (use_on_eval=True) would run with the
+    query off. The gate is purely state-driven (curriculum trigger + query weight),
+    so it stays automatic and reproducible. If the focus phase never triggers, no
+    checkpoint is saved and the caller falls back to the in-memory model.
+    """
+
+    def _should_skip_saving_checkpoint(self, trainer) -> bool:
+        if super()._should_skip_saving_checkpoint(trainer):
+            return True
+        module = trainer.lightning_module
+        if getattr(module, "_attention_refinement_trigger_epoch", None) is None:
+            return True  # focus phase not entered yet
+        weight_fn = getattr(module, "_attention_refinement_query_weight", None)
+        if callable(weight_fn) and float(weight_fn(int(trainer.current_epoch))) <= 0.0:
+            return True  # active-prototype query not injected this epoch
+        return False
+
+
 def make_early_stopping_callback(mt, validation_monitor: str):
     """EarlyStopping, or None when attention-refinement owns the post-overfit phase."""
     if bool(getattr(mt.trainer_cfg, "attention_refinement_enabled", False)):
@@ -73,11 +97,17 @@ def build_callbacks(mt) -> Sequence[pl.callbacks.Callback]:
 
     dirpath, exp_dir, attention_dir = _checkpoint_dirs(mt)
 
-    # Plain best-val checkpoint: save the single best epoch by the monitored metric,
-    # whenever it occurs. No min-epoch or refinement gating — stopping and phase
-    # timing are owned by the loss-linked curriculum.
+    # Best-val checkpoint. When the aggregator-focus curriculum is on, restrict
+    # selection to focus-phase epochs (active-prototype query engaged) so the chosen
+    # model is one the prototype injection corrected the aggregator with; otherwise
+    # plain best-val over all epochs.
     validation_monitor = mt._checkpoint_monitor_metric()
-    ckpt_cb = ModelCheckpoint(
+    ckpt_cls = (
+        _FocusPhaseModelCheckpoint
+        if bool(getattr(mt.trainer_cfg, "attention_refinement_enabled", False))
+        else ModelCheckpoint
+    )
+    ckpt_cb = ckpt_cls(
         dirpath=dirpath,
         filename=f"{run_suffix}_ep{{epoch:03d}}",
         monitor=validation_monitor,
