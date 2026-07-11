@@ -759,6 +759,18 @@ class TrainingMethods(_CurriculumMixin, nn.Module):
         self._attention_refinement_lr_reduced = bool(state.get("lr_reduced", False))
 
     def on_train_epoch_start(self):
+        # Rebuild the active-prototype bank from the PREVIOUS epoch's accumulated
+        # candidates here, at the epoch's start — not at the end of the previous epoch.
+        # This keeps the bank fixed for the whole epoch, so training, validation, and the
+        # end-of-epoch best-model checkpoint all observe the exact same bank. If the
+        # rebuild ran at epoch end instead, ModelCheckpoint (which saves after
+        # on_train_epoch_end) would persist a freshly-rebuilt bank the saved weights were
+        # never validated against — so a reloaded/exported model, and the per-epoch KID
+        # and val_loss, would disagree with the live epoch's metrics. No-op on epoch 0 and
+        # whenever the candidate buffer is empty (warmup / no active molecules yet).
+        rebuild = getattr(self.core, "rebuild_active_prototypes", None)
+        if callable(rebuild):
+            rebuild()
         self._apply_attention_refinement_phase(
             int(getattr(self, "current_epoch", 0) or 0),
             log=True,
@@ -829,16 +841,11 @@ class TrainingMethods(_CurriculumMixin, nn.Module):
             log_dict.update(self._last_train_metrics)
         self.log_dict(log_dict, sync_dist=True, add_dataloader_idx=False)
         self._log_epoch_metric_summary(computed_val, val_loss)
+        # Reads the current epoch's active-prototype bank — the one this epoch trained
+        # and validated with. The bank is rebuilt at the NEXT epoch's on_train_epoch_start
+        # (not here), so validation, the curriculum, and the best-model checkpoint all
+        # observe the same bank; see on_train_epoch_start for the full rationale.
         self._maybe_update_attention_refinement_schedule(computed_val, val_loss)
-        # Order-invariant rebuild of the active-prototype bank from this epoch's
-        # accumulated candidates. Done here (on_validation_epoch_end) so it runs
-        # BEFORE ModelCheckpoint saves at on_validation_end — the checkpointed bank
-        # therefore matches the saved weights' epoch. No-op when the buffer is empty
-        # (warmup, or a validation-only pass). The curriculum above intentionally
-        # read the pre-rebuild bank — the state the epoch actually trained with.
-        rebuild = getattr(self.core, "rebuild_active_prototypes", None)
-        if callable(rebuild):
-            rebuild()
         self.val_metrics.reset()
         self._reset_epoch_loss_accumulator("val")
 

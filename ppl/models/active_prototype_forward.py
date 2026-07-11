@@ -107,8 +107,19 @@ class ActivePrototypeMixin:
         )
         self.active_prototype_use_on_eval = bool(cfg.get("use_on_eval", True))
         self._active_prototype_status_logged_epoch: Optional[int] = None
-        # Per-epoch candidate accumulation; the bank is rebuilt (order-invariant)
-        # from these at epoch end. Transient — not a buffer, not checkpointed.
+        # Per-epoch candidate accumulation; the bank is rebuilt (order-invariant) from
+        # these at the START of the NEXT epoch (LightningModule.on_train_epoch_start), so
+        # the bank stays fixed for the whole epoch — training, validation, and the
+        # best-model checkpoint all observe the same bank. Two invariants this relies on:
+        #   1. Accumulation is training-only (`_should_update_active_prototypes` requires
+        #      self.training). Every epoch-end diagnostic forward (KID, attention/embedding
+        #      loggers) runs under model.eval(), so it must NOT accumulate — a future
+        #      callback doing a stage="train" forward with self.training=True between epoch
+        #      end and the next epoch's start would corrupt the next bank.
+        #   2. This buffer is transient (a plain list, not a registered buffer, not
+        #      checkpointed). Resume-from-checkpoint is not used (fit() runs with no
+        #      ckpt_path); if it ever is, the first resumed epoch would rebuild from an
+        #      empty buffer and would need this buffer persisted for exact continuation.
         self._active_candidate_buffer: list = []
         self._active_candidate_series: list = []
 

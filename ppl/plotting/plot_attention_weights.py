@@ -48,7 +48,13 @@ except ModuleNotFoundError:
             ax.set_ylabel(ylabel)
         if title is not None:
             ax.set_title(title)
-        ax.grid(grid if y_grid is None else y_grid, alpha=0.25)
+        # Pass line props (alpha) only when enabling the grid — matplotlib warns and
+        # force-enables if you supply styling alongside grid(False).
+        show_grid = grid if y_grid is None else y_grid
+        if show_grid:
+            ax.grid(True, alpha=0.25)
+        else:
+            ax.grid(False)
 
 LOGGER = logging.getLogger(__name__)
 
