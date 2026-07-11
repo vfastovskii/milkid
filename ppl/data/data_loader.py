@@ -105,6 +105,8 @@ class MILDataModule(pl.LightningDataModule):
         # {bag_id: [conformer instance IDs]} captured during bag construction,
         # aligned with each bag's rows (incl. "__noexp" bags) for attention labels.
         self.bag_conf_ids: dict[str, list[str]] = {}
+        # {series: importance weight} for balanced-batch training; None when off.
+        self.series_importance_weights: Optional[dict[str, float]] = None
 
     # Lightning API
     def setup(self, stage: str | None = None):
@@ -124,6 +126,30 @@ class MILDataModule(pl.LightningDataModule):
         """
         # Implementation details are in data_module_impl.py
         setup_data_module(self, stage)
+        self.series_importance_weights = self._compute_series_importance_weights()
+
+    def _compute_series_importance_weights(self):
+        """Per-series importance weight w(s) = |s|·n_series/N over the TRAIN bags.
+
+        Corrects the group-balanced sampler's oversampling of rare series so the
+        weighted train loss is an unbiased estimate of the true-distribution loss.
+        Returns None unless balanced batching AND reweighting are both enabled and
+        the train split carries series labels.
+        """
+        if not (
+            bool(getattr(self.cfg, "balance_train_batches_by_series", False))
+            and bool(getattr(self.cfg, "series_balance_importance_weight", True))
+        ):
+            return None
+        labels = list(getattr(self._train, "_series_labels", None) or [])
+        if not labels:
+            return None
+        from collections import Counter
+
+        sizes = Counter(str(s) for s in labels)
+        n = float(sum(sizes.values()))
+        n_series = float(len(sizes))
+        return {s: (float(sz) * n_series / n) for s, sz in sizes.items()}
 
     def _cluster_bags(self, bags, split_name=""):
         """Cluster conformers per bag in scaled descriptor space."""

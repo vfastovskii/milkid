@@ -417,6 +417,25 @@ class TrainingMethods(_CurriculumMixin, nn.Module):
         y_hat, _ = self.core(x)
         return y_hat
 
+    def _series_importance_weight(self, series_labels, ref):
+        """Per-bag importance weight from the data module's per-series map, or None.
+
+        The map (w(s) = |s|·n_series/N) is populated only when the balanced batch
+        sampler + reweighting are both on; None means unweighted (random batching
+        or eval), so the loss falls back to a plain mean.
+        """
+        if series_labels is None:
+            return None
+        dm = getattr(getattr(self, "trainer", None), "datamodule", None)
+        wmap = getattr(dm, "series_importance_weights", None) if dm is not None else None
+        if not wmap:
+            return None
+        return torch.tensor(
+            [float(wmap.get(str(s), 1.0)) for s in series_labels],
+            device=ref.device,
+            dtype=ref.dtype,
+        )
+
     def _shared_step(self, batch, stage: str):
         """Shared logic for training, validation, and test steps.
 
@@ -581,7 +600,15 @@ class TrainingMethods(_CurriculumMixin, nn.Module):
                         _finite_summary("y", y),
                         _finite_summary("logit", logit),
                     )
-                loss = self.criterion(logit, y)
+                # Importance-weight the TRAIN loss to undo the group-balanced
+                # sampler's oversampling (unbiased estimate of the true-distribution
+                # loss). None for eval and for unbalanced/random batching.
+                weight = (
+                    self._series_importance_weight(series_labels, logit)
+                    if stage == "train"
+                    else None
+                )
+                loss = self.criterion(logit, y, weight=weight)
                 reg_loss = extras.get("reg_loss")
                 if reg_loss is not None:
                     if isinstance(reg_loss, torch.Tensor):

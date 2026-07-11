@@ -33,6 +33,10 @@ class DataLoaderConfig:
     num_workers: int = os.cpu_count() or 1
     pin_memory: bool = True
     balance_train_batches_by_series: bool = False
+    # When balanced batching is on, importance-weight the train loss by
+    # w(s)=|s|·n_series/N to undo the sampler's group oversampling (unbiased
+    # objective). Set False for a deliberately macro-averaged (per-series) objective.
+    series_balance_importance_weight: bool = True
 
     # optional per-bag conformer clustering in scaled descriptor space
     cluster_instances: bool = False
