@@ -43,3 +43,42 @@ def test_kid_metrics_for_model_flattens_val_and_train(monkeypatch):
     # val uses noexp_only=True, train uses noexp_only=False
     assert ("val_batch", "val", True) in seen
     assert ("train_batch", "train", False) in seen
+
+
+import json
+import ppl.training.run_metrics as rm
+
+
+def _fake_mt(kid_enabled):
+    tcfg = types.SimpleNamespace(
+        kid_metric_enabled=kid_enabled, kid_sdf_path="x.sdf", kid_top_k=[1, 3, 5],
+        kid_rmsd_threshold=2.0, kid_o3a_threshold=0.8, kid_active_threshold=7.0,
+        kid_pred_tol=1.0, kid_pdb_only=True,
+    )
+    mt = types.SimpleNamespace(trainer_cfg=tcfg, _last_trainer=object())
+    mt._get_best_epoch_from_trainer = lambda tr: 23
+    return mt
+
+
+def test_write_run_metrics_errors_and_kid(monkeypatch, tmp_path):
+    monkeypatch.setattr(rm, "_load_kid_calculator", lambda mt: object())
+    monkeypatch.setattr(
+        rm, "kid_metrics_for_model",
+        lambda model, dm, calc, *, epoch: {"val_rmsd_top1": 0.61, "train_rmsd_top1": 0.29},
+    )
+    val_metrics = {"val_rmse": 1.07, "val_mae": 0.86, "val_loss": 1.14}
+    train_metrics = {"train_rmse": 1.17, "train_mae": 0.98}
+
+    out = rm.write_run_metrics(tmp_path, _fake_mt(True), object(), object(), val_metrics, train_metrics)
+
+    written = json.loads((tmp_path / "run_metrics.json").read_text())
+    assert written == out
+    assert out["val_rmse"] == 1.07 and out["train_rmse"] == 1.17
+    assert out["val_rmsd_top1"] == 0.61 and out["best_epoch"] == 23
+
+
+def test_write_run_metrics_kid_disabled_gives_null(monkeypatch, tmp_path):
+    out = rm.write_run_metrics(tmp_path, _fake_mt(False), object(), object(),
+                               {"val_rmse": 1.07}, {"train_rmse": 1.17})
+    assert out["val_rmse"] == 1.07
+    assert out["val_rmsd_top1"] is None
