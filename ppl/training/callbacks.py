@@ -6,6 +6,7 @@ metric helpers; kept here to keep ModelTrainer focused on build/fit.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Sequence
 
 import pytorch_lightning as pl
@@ -56,6 +57,48 @@ class _GatedModelCheckpoint(ModelCheckpoint):
             if callable(weight_fn) and float(weight_fn(int(trainer.current_epoch))) <= 0.0:
                 return True  # active-prototype query not injected this epoch
         return False
+
+
+class MetricsFileLogger(pl.Callback):
+    """Append every per-epoch metric to ``<results_dir>/log.txt`` (one line/epoch).
+
+    Runs at on_train_epoch_end, which fires after validation + all other callbacks
+    (KID, LR), so trainer.callback_metrics holds the full epoch record — train/val
+    loss+rmse+mae, KID top-k, learning rates, everything logged that epoch. Each
+    line is self-describing ``epoch=N key=value …`` (sorted), so it stays parseable
+    even as the metric set changes.
+    """
+
+    def __init__(self, log_path) -> None:
+        super().__init__()
+        self.log_path = Path(log_path)
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        self._written_epoch = None
+
+    def on_train_epoch_end(self, trainer, pl_module) -> None:
+        if getattr(trainer, "sanity_checking", False):
+            return
+        epoch = int(trainer.current_epoch)
+        if epoch == self._written_epoch:
+            return
+        metrics = {}
+        for k, v in (trainer.callback_metrics or {}).items():
+            try:
+                metrics[str(k)] = float(v.item() if hasattr(v, "item") else v)
+            except (TypeError, ValueError):
+                continue
+        if not metrics:
+            return
+        self._written_epoch = epoch
+        line = " ".join(
+            [f"epoch={epoch}"] + [f"{k}={metrics[k]:.6g}" for k in sorted(metrics)]
+        )
+        try:
+            with open(self.log_path, "a") as f:
+                f.write(line + "\n")
+        except OSError as e:
+            LOGGER.warning("[MODEL] Could not write per-epoch metrics to %s: %s",
+                           self.log_path, e)
 
 
 def make_early_stopping_callback(mt, validation_monitor: str):
@@ -137,6 +180,11 @@ def build_callbacks(mt) -> Sequence[pl.callbacks.Callback]:
     early_stop_cb = make_early_stopping_callback(mt, validation_monitor)
     if early_stop_cb is not None:
         callbacks_list.insert(1, early_stop_cb)
+
+    # Per-run plain-text metrics log (all metrics, one line per epoch).
+    log_path = (exp_dir if exp_dir is not None else mt.results_dir) / "log.txt"
+    callbacks_list.append(MetricsFileLogger(log_path))
+    LOGGER.info("[MODEL] Per-epoch metrics log: %s", log_path)
 
     if bool(getattr(mt.trainer_cfg, "kid_metric_enabled", False)):
         sdf = getattr(mt.trainer_cfg, "kid_sdf_path", None)
