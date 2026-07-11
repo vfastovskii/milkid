@@ -279,3 +279,33 @@ def _fmt(metrics, base):
         f"{metrics[k]:.2f}" if np.isfinite(metrics.get(k, np.nan)) else "n/a"
         for k in sorted(metrics) if k.startswith(base)
     )
+
+
+def kid_metrics_for_model(model, dm, calc, *, epoch) -> dict:
+    """Best-model KID (val + train) as a flat dict.
+
+    Reuses the same forward+metric path as KidMetricCallback, but on a specific
+    model (e.g. the reloaded best checkpoint) rather than per-epoch. Val keeps only
+    '__noexp' bags; train bags are already experimental-pose-free.
+    """
+    conf_ids = dict(getattr(dm, "bag_conf_ids", {}) or {})
+    out: dict = {}
+
+    val_recs = extract_molecule_attention(
+        model, dm.val_dataloader(), conf_ids, stage="val", epoch=int(epoch), noexp_only=True
+    )
+    val = calc.compute(val_recs)
+    for k in ("rmsd_top1", "rmsd_top3", "rmsd_top5", "o3a_top1", "o3a_top3", "o3a_top5"):
+        out[f"val_{k}"] = float(val[k])
+    out["kid_n_active_correct"] = float(val["n_active_correct"])
+    out["kid_n_rmsd_valid"] = float(val["n_rmsd_valid"])
+    out["kid_n_o3a_valid"] = float(val["n_o3a_valid"])
+
+    train_loader = dm._make_loader(dm._train, shuffle=False)
+    train_recs = extract_molecule_attention(
+        model, train_loader, conf_ids, stage="train", epoch=int(epoch), noexp_only=False
+    )
+    train = calc.compute(train_recs)
+    for k in ("rmsd_top1", "rmsd_top3", "rmsd_top5", "o3a_top1", "o3a_top3", "o3a_top5"):
+        out[f"train_{k}"] = float(train[k])
+    return out
