@@ -10,20 +10,19 @@ import torch.nn.functional as F
 
 
 class DynamicActivePrototypeBank(nn.Module):
-    """EMA-updated memory of active conformer prototypes.
+    """Per-epoch clustered memory of active conformer prototypes.
 
-    Prototypes are buffers rather than trainable parameters. They are updated
-    from training batches only by the caller, so validation and test data cannot
-    leak label information into the memory.
+    Prototypes are buffers rather than trainable parameters. The bank is rebuilt
+    once per epoch from that epoch's accumulated active candidates via
+    ``rebuild_from_candidates`` — a deterministic, order-invariant, per-series
+    clustering (see that method). It is rebuilt from training batches only, so
+    validation and test data cannot leak label information into the memory.
     """
 
     def __init__(
         self,
         dim: int = 256,
         max_prototypes: int = 64,
-        create_sim_threshold: float = 0.80,
-        merge_sim_threshold: float = 0.95,
-        ema_momentum: float = 0.05,
         min_count_to_keep: int = 3,
         eps: float = 1e-8,
     ) -> None:
@@ -31,9 +30,6 @@ class DynamicActivePrototypeBank(nn.Module):
 
         self.dim = int(dim)
         self.max_prototypes = int(max_prototypes)
-        self.create_sim_threshold = float(create_sim_threshold)
-        self.merge_sim_threshold = float(merge_sim_threshold)
-        self.ema_momentum = float(ema_momentum)
         self.min_count_to_keep = int(min_count_to_keep)
         self.eps = float(eps)
         if self.dim <= 0:
@@ -41,10 +37,6 @@ class DynamicActivePrototypeBank(nn.Module):
         if self.max_prototypes <= 0:
             raise ValueError(
                 f"max_prototypes must be positive, got {max_prototypes}"
-            )
-        if not 0.0 < self.ema_momentum <= 1.0:
-            raise ValueError(
-                f"ema_momentum must be in (0, 1], got {ema_momentum}"
             )
 
         self.register_buffer(
@@ -140,177 +132,149 @@ class DynamicActivePrototypeBank(nn.Module):
         )
 
     @torch.no_grad()
-    def update(
+    def rebuild_from_candidates(
         self,
         candidates: torch.Tensor,
         candidate_series: Optional[Sequence[object]] = None,
         max_per_series: Optional[int] = None,
     ) -> None:
-        """Update the prototype bank from active conformer embeddings.
+        """Rebuild the whole bank from an epoch's active-conformer candidates.
+
+        Order-invariant by construction: candidates are grouped by congeneric
+        series, each series is clustered deterministically into at most
+        ``max_per_series`` clusters (the input is canonicalised first), and every
+        cluster with at least ``min_count_to_keep`` members becomes one
+        count-weighted, L2-normalised prototype. Independent of candidate/batch
+        order, so the bank is reproducible for a fixed candidate set regardless of
+        shuffling — and prototypes are never mixed across series.
 
         Parameters
         ----------
         candidates
-            Tensor with shape [M, D].
+            Tensor with shape [M, D] (all of this epoch's active candidates).
         candidate_series
             Optional congeneric-series label for each candidate.
         max_per_series
-            Optional cap on active prototypes tagged with the same series.
+            Cap on prototypes per series (defaults to ``max_prototypes``).
         """
         if candidates is None or candidates.numel() == 0:
             return
-
         if candidates.dim() != 2 or candidates.size(-1) != self.dim:
             raise ValueError(
-                "DynamicActivePrototypeBank.update expects candidates with "
-                f"shape [M, {self.dim}], got {tuple(candidates.shape)}"
+                "rebuild_from_candidates expects candidates with shape "
+                f"[M, {self.dim}], got {tuple(candidates.shape)}"
             )
 
-        candidates = candidates.detach().to(
-            device=self.prototypes.device,
-            dtype=self.prototypes.dtype,
+        device, dtype = self.prototypes.device, self.prototypes.dtype
+        cand = F.normalize(
+            candidates.detach().to(device=device, dtype=dtype), p=2, dim=-1
         )
-        candidates = F.normalize(candidates, p=2, dim=-1)
-        series_ids = self._series_ids(candidate_series, candidates.size(0))
-        max_per_series = (
-            None
-            if max_per_series is None or int(max_per_series) <= 0
+        # Drop non-finite candidates: a diverged/overflowed embedding must neither
+        # crash the clustering nor be stored as a NaN prototype that would poison
+        # every subsequent query.
+        finite = torch.isfinite(cand).all(dim=1)
+        if not bool(finite.all()):
+            cand = cand[finite]
+            if candidate_series is not None:
+                candidate_series = [
+                    s for s, keep in zip(candidate_series, finite.tolist()) if keep
+                ]
+        if cand.size(0) == 0:
+            return
+
+        series_ids = self._series_ids(candidate_series, cand.size(0))
+        cap = (
+            self.max_prototypes
+            if not max_per_series or int(max_per_series) <= 0
             else int(max_per_series)
         )
 
-        for idx, c in enumerate(candidates):
-            series_id = None if series_ids is None else series_ids[idx]
-            active_idx = torch.where(self.active_mask)[0]
-            if series_id is not None:
-                sid = int(series_id.item())
-                self._series_seen_counts[sid] = (
-                    self._series_seen_counts.get(sid, 0.0) + 1.0
+        if series_ids is None:
+            groups = {-1: torch.arange(cand.size(0), device=device)}
+        else:
+            positions: Dict[int, list] = {}
+            for pos, sid in enumerate(series_ids.tolist()):
+                positions.setdefault(int(sid), []).append(pos)
+                self._series_seen_counts[int(sid)] = (
+                    self._series_seen_counts.get(int(sid), 0.0) + 1.0
                 )
+            groups = {
+                sid: torch.as_tensor(pos, device=device, dtype=torch.long)
+                for sid, pos in positions.items()
+            }
 
-            if active_idx.numel() == 0:
-                self._create(c, series_id=series_id)
-                continue
+        # Build the new prototype set first, WITHOUT touching the live bank.
+        # Series are ordered by stable label (not encounter-order id) so the slot
+        # layout is reproducible across data orderings.
+        new: list = []  # (series_id, centroid, count)
+        for sid in sorted(groups, key=lambda s: self._id_to_series.get(int(s), str(s))):
+            if len(new) >= self.max_prototypes:
+                break
+            centroids, sizes = self._cluster_centroids(cand[groups[sid]], cap)
+            for centroid, size in zip(centroids, sizes):
+                if len(new) >= self.max_prototypes:
+                    break
+                if size < self.min_count_to_keep:
+                    continue
+                new.append((int(sid), F.normalize(centroid, p=2, dim=-1), float(size)))
 
-            compare_idx = active_idx
-            same_series_idx = None
-            if series_id is not None:
-                same_series_idx = active_idx[
-                    self.prototype_series[active_idx] == series_id
-                ]
-                if same_series_idx.numel() > 0:
-                    compare_idx = same_series_idx
-                else:
-                    created = self._create(c, series_id=series_id)
-                    if created:
-                        continue
-
-            active_p = F.normalize(self.prototypes[compare_idx], p=2, dim=-1)
-            sims = active_p @ c
-            best_local = torch.argmax(sims)
-            best_sim = float(sims[best_local].item())
-            best_idx = compare_idx[best_local]
-
-            if best_sim >= self.create_sim_threshold:
-                self._ema_update(best_idx, c)
-            else:
-                series_has_room = True
-                if (
-                    series_id is not None
-                    and max_per_series is not None
-                    and same_series_idx is not None
-                ):
-                    series_has_room = same_series_idx.numel() < max_per_series
-
-                created = False
-                if series_has_room:
-                    created = self._create(c, series_id=series_id)
-                if not created:
-                    self._ema_update(best_idx, c)
-
-        self.merge_close_prototypes()
-
-    @torch.no_grad()
-    def _create(
-        self,
-        c: torch.Tensor,
-        series_id: Optional[torch.Tensor] = None,
-    ) -> bool:
-        free_idx = torch.where(~self.active_mask)[0]
-        if free_idx.numel() == 0:
-            return False
-
-        idx = free_idx[0]
-        self.prototypes[idx] = c
-        self.counts[idx] = 1.0
-        self.active_mask[idx] = True
-        self.prototype_series[idx] = -1 if series_id is None else int(series_id.item())
-        return True
-
-    @torch.no_grad()
-    def _ema_update(self, idx: torch.Tensor, c: torch.Tensor) -> None:
-        m = self.ema_momentum
-        new = (1.0 - m) * self.prototypes[idx] + m * c
-        self.prototypes[idx] = F.normalize(new, p=2, dim=-1)
-        self.counts[idx] += 1.0
-
-    @torch.no_grad()
-    def merge_close_prototypes(self) -> None:
-        """Merge active prototypes whose cosine similarity is too high."""
-        active_idx = torch.where(self.active_mask)[0]
-        if active_idx.numel() <= 1:
+        # Transactional: if nothing survives filtering (a sparse epoch), keep the
+        # previous bank rather than wiping accumulated memory to empty.
+        if not new:
             return
+        self.prototypes.zero_()
+        self.counts.zero_()
+        self.active_mask.fill_(False)
+        self.prototype_series.fill_(-1)
+        for slot, (sid, centroid, size) in enumerate(new):
+            self.prototypes[slot] = centroid
+            self.counts[slot] = size
+            self.active_mask[slot] = True
+            self.prototype_series[slot] = sid
 
-        P = F.normalize(self.prototypes[active_idx], p=2, dim=-1)
-        sim = P @ P.T
+    def _cluster_centroids(self, members: torch.Tensor, max_k: int):
+        """Cluster unit vectors into <= max_k count-weighted centroids.
 
-        series = self.prototype_series[active_idx]
-        known_series = (series.unsqueeze(0) >= 0) & (series.unsqueeze(1) >= 0)
-        different_series = series.unsqueeze(0) != series.unsqueeze(1)
-        sim = sim.masked_fill(known_series & different_series, -1.0)
+        Deterministic and order-invariant: the rows are canonicalised before
+        clustering, and centroids are returned largest-cluster-first so bank slot
+        assignment is stable run-to-run.
+        """
+        n = int(members.size(0))
+        if n == 0:
+            return [], []
+        keys = members.detach().cpu().numpy()
+        order = sorted(range(n), key=lambda i: keys[i].tobytes())
+        members = members[torch.as_tensor(order, device=members.device)]
 
-        K = active_idx.numel()
-        eye = torch.eye(K, device=sim.device, dtype=torch.bool)
-        sim = sim.masked_fill(eye, -1.0)
+        # Never request more clusters than can hold min_count_to_keep members
+        # each, so rare series (few candidates) still form one supported prototype
+        # instead of splitting into singletons that all get filtered out.
+        k = min(int(max_k), max(1, n // max(1, self.min_count_to_keep)))
+        if k <= 1:
+            return [members.mean(dim=0)], [n]
 
-        pairs = torch.nonzero(sim > self.merge_sim_threshold, as_tuple=False)
-        used: set[int] = set()
-
-        for a_local, b_local in pairs:
-            a = int(a_local.item())
-            b = int(b_local.item())
-
-            if a in used or b in used:
+        labels = self._agglomerative_labels(members, k)
+        clusters = []
+        for cl in range(int(labels.max().item()) + 1):
+            m = members[labels == cl]
+            if m.size(0) == 0:
                 continue
+            clusters.append((m.mean(dim=0), int(m.size(0))))
+        clusters.sort(
+            key=lambda cs: (-cs[1], cs[0].detach().cpu().numpy().tobytes())
+        )
+        return [c for c, _ in clusters], [s for _, s in clusters]
 
-            ia = active_idx[a]
-            ib = active_idx[b]
-            ca = self.counts[ia]
-            cb = self.counts[ib]
+    @staticmethod
+    def _agglomerative_labels(members: torch.Tensor, k: int) -> torch.Tensor:
+        """Deterministic agglomerative-clustering labels for unit vectors."""
+        from sklearn.cluster import AgglomerativeClustering
 
-            merged = (ca * self.prototypes[ia] + cb * self.prototypes[ib])
-            merged = merged / (ca + cb).clamp_min(self.eps)
-            merged = F.normalize(merged, p=2, dim=-1)
-
-            self.prototypes[ia] = merged
-            self.counts[ia] = ca + cb
-            self.prototypes[ib].zero_()
-            self.counts[ib] = 0.0
-            self.active_mask[ib] = False
-            self.prototype_series[ib] = -1
-
-            used.add(a)
-            used.add(b)
-
-    @torch.no_grad()
-    def prune_weak_prototypes(self) -> None:
-        """Drop active prototypes with support below min_count_to_keep."""
-        active_idx = torch.where(self.active_mask)[0]
-        for idx in active_idx:
-            if self.counts[idx] < self.min_count_to_keep:
-                self.prototypes[idx].zero_()
-                self.counts[idx] = 0.0
-                self.active_mask[idx] = False
-                self.prototype_series[idx] = -1
+        x = members.detach().cpu().to(torch.float64).numpy()
+        labels = AgglomerativeClustering(
+            n_clusters=k, metric="euclidean", linkage="ward"
+        ).fit_predict(x)
+        return torch.as_tensor(labels, device=members.device, dtype=torch.long)
 
     def get_active_prototypes(self) -> torch.Tensor:
         return self.prototypes[self.active_mask]

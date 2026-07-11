@@ -790,6 +790,11 @@ class TrainingMethods(_CurriculumMixin, nn.Module):
             != getattr(self, "current_epoch", None)
         ):
             self._consume_current_train_epoch_metrics()
+        # Order-invariant rebuild of the active-prototype bank from this epoch's
+        # accumulated candidates (no-op during warmup / when the buffer is empty).
+        rebuild = getattr(self.core, "rebuild_active_prototypes", None)
+        if callable(rebuild):
+            rebuild()
         self._log_active_prototype_epoch_summary()
 
     def on_validation_epoch_end(self):

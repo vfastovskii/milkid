@@ -106,10 +106,10 @@ class ActivePrototypeMixin:
         )
         self.active_prototype_use_on_eval = bool(cfg.get("use_on_eval", True))
         self._active_prototype_status_logged_epoch: Optional[int] = None
-        default_prune_interval = 100 if self.active_prototype_min_active > 1 else 0
-        self.active_prototype_prune_every_n_updates = int(
-            cfg.get("prune_every_n_updates", default_prune_interval)
-        )
+        # Per-epoch candidate accumulation; the bank is rebuilt (order-invariant)
+        # from these at epoch end. Transient — not a buffer, not checkpointed.
+        self._active_candidate_buffer: list = []
+        self._active_candidate_series: list = []
 
         if not self.active_prototype_enabled:
             self.active_prototype_bank = None
@@ -120,9 +120,6 @@ class ActivePrototypeMixin:
         self.active_prototype_bank = DynamicActivePrototypeBank(
             dim=dim,
             max_prototypes=int(cfg.get("max_prototypes", 64)),
-            create_sim_threshold=float(cfg.get("create_sim_threshold", 0.80)),
-            merge_sim_threshold=float(cfg.get("merge_sim_threshold", 0.95)),
-            ema_momentum=float(cfg.get("ema_momentum", 0.05)),
             min_count_to_keep=int(cfg.get("min_count_to_keep", 3)),
             eps=float(cfg.get("eps", 1e-8)),
         )
@@ -566,39 +563,57 @@ class ActivePrototypeMixin:
                     top_m=self.active_prototype_top_m_candidates,
                     return_series=True,
                 )
-            self.active_prototype_bank.update(
-                candidates,
-                candidate_series=candidate_series,
-                max_per_series=self.active_prototype_max_per_series,
-            )
-            num_after = self.active_prototype_bank.num_active()
-            support_after = float(
-                self.active_prototype_bank.counts[
-                    self.active_prototype_bank.active_mask
-                ].sum().item()
-            )
-
-            if candidates.size(0) > 0 or num_after != num_before:
+            # Accumulate this batch's candidates; the bank is rebuilt once per
+            # epoch (order-invariant) in rebuild_active_prototypes() at epoch end.
+            if candidates.size(0) > 0:
+                self._active_candidate_buffer.append(candidates.detach().cpu())
+                if candidate_series is not None:
+                    self._active_candidate_series.extend(
+                        str(s) for s in candidate_series
+                    )
                 LOGGER.debug(
-                    "[ACTIVE_PROTO] update candidates=%d active_prototypes=%d->%d "
-                    "support=%.0f->%.0f max=%d",
+                    "[ACTIVE_PROTO] buffered candidates=%d (epoch total=%d); "
+                    "bank=%d active support=%.0f, rebuilt at epoch end",
                     int(candidates.size(0)),
+                    sum(int(c.size(0)) for c in self._active_candidate_buffer),
                     num_before,
-                    num_after,
                     support_before,
-                    support_after,
-                    self.active_prototype_bank.max_prototypes,
                 )
 
-            if hasattr(self, "active_prototype_num_updates"):
-                self.active_prototype_num_updates.add_(1)
-                prune_every = self.active_prototype_prune_every_n_updates
-                if prune_every > 0:
-                    num_updates = int(self.active_prototype_num_updates.item())
-                    if num_updates % prune_every == 0:
-                        self.active_prototype_bank.prune_weak_prototypes()
-
         return int(candidates.size(0))
+
+    @torch.no_grad()
+    def rebuild_active_prototypes(self) -> None:
+        """Rebuild the bank from this epoch's accumulated active candidates.
+
+        Order-invariant per-epoch rebuild (deterministic per-series clustering).
+        Train-only — call at epoch end. Clears the candidate buffer afterwards.
+        """
+        bank = getattr(self, "active_prototype_bank", None)
+        buf = getattr(self, "_active_candidate_buffer", None) or []
+        if bank is None or not buf:
+            self._reset_active_candidate_buffer()
+            return
+        candidates = torch.cat(buf, dim=0)
+        series = getattr(self, "_active_candidate_series", None) or []
+        candidate_series = series if len(series) == int(candidates.size(0)) else None
+        bank.rebuild_from_candidates(
+            candidates,
+            candidate_series=candidate_series,
+            max_per_series=self.active_prototype_max_per_series,
+        )
+        if hasattr(self, "active_prototype_num_updates"):
+            self.active_prototype_num_updates.add_(1)
+        LOGGER.debug(
+            "[ACTIVE_PROTO] epoch rebuild from %d candidates -> %d active prototypes",
+            int(candidates.size(0)),
+            bank.num_active(),
+        )
+        self._reset_active_candidate_buffer()
+
+    def _reset_active_candidate_buffer(self) -> None:
+        self._active_candidate_buffer = []
+        self._active_candidate_series = []
 
     def _add_active_prototype_extras(
         self,

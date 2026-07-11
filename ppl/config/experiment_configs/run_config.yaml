@@ -102,11 +102,8 @@ model:
     ablation_positive_only: true
     candidate_alpha_key: alpha
     max_prototypes: 64
-    max_prototypes_per_series: 2
-    create_sim_threshold: 0.80
-    merge_sim_threshold: 0.90
-    ema_momentum: 0.03
-    min_count_to_keep: 3
+    max_prototypes_per_series: 4  # per-series cluster cap in the per-epoch rebuild (4×13 series ≤ 64)
+    min_count_to_keep: 3  # min candidate conformers per cluster to keep a prototype
     query_top_m_prototypes: 8
     query_temperature: 0.2
     query_prefer_same_series: false
