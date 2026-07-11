@@ -41,6 +41,11 @@ class TrainerConfig:
     log_per_epoch: bool = True
     save_attention_artifacts: bool = True
     checkpoint_monitor: Optional[str] = None
+    # Best-model selection floor: only epochs >= checkpoint_min_epoch are eligible
+    # for the best-val checkpoint (0 = no floor). Training is guaranteed to reach it
+    # (min_epochs is raised to match), so the floor always has eligible epochs; it
+    # does NOT prevent the curriculum from stopping once past the floor.
+    checkpoint_min_epoch: int = 0
 
     # Loss-linked aggregator-focus curriculum (single LR + query authority; the
     # plain LR scheduler should be "none" when this is enabled). When the
@@ -126,9 +131,15 @@ def build_trainer(
     }
     # Stopping is loss-controlled: the aggregator-focus curriculum stops on the
     # validation plateau (or Lightning EarlyStopping when the curriculum is off).
-    # min_epochs is only an optional user floor — nothing forces it upward.
-    if int(config.min_epochs or 0) > 0:
-        trainer_kwargs["min_epochs"] = int(config.min_epochs)
+    # min_epochs is an optional user floor, also raised so training reaches the
+    # best-checkpoint floor (the best model can only come from epochs that run).
+    min_epochs = int(config.min_epochs or 0)
+    checkpoint_min_epoch = int(getattr(config, "checkpoint_min_epoch", 0) or 0)
+    if checkpoint_min_epoch > 0:
+        # Epoch indices are 0-based, so reaching epoch N requires N+1 epochs.
+        min_epochs = max(min_epochs, checkpoint_min_epoch + 1)
+    if min_epochs > 0:
+        trainer_kwargs["min_epochs"] = min_epochs
     # Only include strategy if it's not None
     if config.strategy is not None:
         trainer_kwargs["strategy"] = config.strategy
