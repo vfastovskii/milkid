@@ -155,6 +155,12 @@ trainer:
   save_attention_artifacts: true
   checkpoint_monitor: val_loss  # best epoch by validation loss
   checkpoint_min_epoch: 30  # only select the best model from epoch >= 30 (training reaches it)
+  # Per-epoch KID pose-selection metric (top-k attention success vs experimental pose)
+  kid_metric_enabled: true
+  kid_sdf_path: ppl/kid_calculator/bace809_200confs.sdf
+  kid_top_k: [1, 3, 5]
+  kid_rmsd_threshold: 2.0
+  kid_o3a_threshold: 0.8
   # Aggregator-focus curriculum (single loss-linked LR + query authority).
   # Enters focus when val_loss plateaus (patience epochs, min_delta) AND the
   # active-prototype bank is ready; cuts embedder/predictor LR ×lr_factor while

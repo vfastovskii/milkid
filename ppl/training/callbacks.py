@@ -137,6 +137,27 @@ def build_callbacks(mt) -> Sequence[pl.callbacks.Callback]:
     early_stop_cb = make_early_stopping_callback(mt, validation_monitor)
     if early_stop_cb is not None:
         callbacks_list.insert(1, early_stop_cb)
+
+    if bool(getattr(mt.trainer_cfg, "kid_metric_enabled", False)):
+        sdf = getattr(mt.trainer_cfg, "kid_sdf_path", None)
+        if not sdf:
+            LOGGER.warning("[MODEL] kid_metric_enabled but kid_sdf_path is not set; skipping KID")
+        else:
+            try:
+                from ppl.training.kid_calculator import KidCalculator, KidMetricCallback
+
+                calc = KidCalculator(
+                    sdf,
+                    top_k=getattr(mt.trainer_cfg, "kid_top_k", [1, 3, 5]),
+                    rmsd_threshold=getattr(mt.trainer_cfg, "kid_rmsd_threshold", 2.0),
+                    o3a_threshold=getattr(mt.trainer_cfg, "kid_o3a_threshold", 0.8),
+                    active_threshold=getattr(mt.trainer_cfg, "kid_active_threshold", 7.0),
+                    pred_tol=getattr(mt.trainer_cfg, "kid_pred_tol", 1.0),
+                )
+                callbacks_list.append(KidMetricCallback(calc))
+                LOGGER.info("[MODEL] KID pose-selection metric enabled (per-epoch train + val)")
+            except Exception as e:
+                LOGGER.warning("[MODEL] KID metric disabled (SDF load failed: %s)", e)
     if mt.trainer_cfg.enable_progress_bar:
         callbacks_list.append(TQDMProgressBar(refresh_rate=20, leave=False))
     if mt.trainer_cfg.enable_model_summary:

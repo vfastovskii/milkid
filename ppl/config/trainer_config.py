@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, List, Union, Any
 
 import pytorch_lightning as pl
@@ -46,6 +46,18 @@ class TrainerConfig:
     # (min_epochs is raised to match), so the floor always has eligible epochs; it
     # does NOT prevent the curriculum from stopping once past the floor.
     checkpoint_min_epoch: int = 0
+
+    # Per-epoch KID pose-selection metric: top-k attention success against the
+    # experimental pose (best_rmsd_to_exp <= threshold / norm o3a_to_exp >= threshold)
+    # for active, correctly-predicted molecules. Needs the SDF carrying per-conformer
+    # best_rmsd_to_exp / o3a_to_exp (keyed by conformer _Name).
+    kid_metric_enabled: bool = False
+    kid_sdf_path: Optional[str] = None
+    kid_top_k: List[int] = field(default_factory=lambda: [1, 3, 5])
+    kid_rmsd_threshold: float = 2.0
+    kid_o3a_threshold: float = 0.8
+    kid_active_threshold: float = 7.0
+    kid_pred_tol: float = 1.0
 
     # Loss-linked aggregator-focus curriculum (single LR + query authority; the
     # plain LR scheduler should be "none" when this is enabled). When the
