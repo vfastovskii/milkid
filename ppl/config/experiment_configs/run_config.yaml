@@ -95,11 +95,11 @@ model:
     min_active_prototypes: 16
     active_threshold: 7.0
     top_m_candidates: 3
-    candidate_selection: attention_ablation
-    ablation_candidate_pool: 8
-    ablation_attention_weight: 0.5
-    ablation_impact_weight: 0.5
-    ablation_positive_only: true
+    candidate_selection: gradient  # per-conformer grad×input saliency + attention, over ALL conformers
+    ablation_candidate_pool: 8      # (only used by candidate_selection: attention_ablation)
+    ablation_attention_weight: 0.5  # blend: attention half
+    ablation_impact_weight: 0.5     # blend: gradient (or ablation) impact half
+    ablation_positive_only: true    # keep only prediction-inflating (activity-driving) conformers
     candidate_alpha_key: alpha
     max_prototypes: 64
     max_prototypes_per_series: 4  # per-series cluster cap in the per-epoch rebuild (4×13 series ≤ 64)

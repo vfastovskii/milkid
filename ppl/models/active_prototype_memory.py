@@ -575,11 +575,24 @@ class ActivePrototypeQuery(nn.Module):
         P_selected = P[topi]
         active_context = (weights_top.unsqueeze(-1) * P_selected).sum(dim=1)
 
-        query = self.query_proj(torch.cat([r0, active_context], dim=-1))
+        # Match-gate: scale the injected active context by how well this bag matches
+        # ANY active prototype (max cosine similarity, clamped to [0, 1]). A bag that
+        # resembles no active prototype gets ~zero injection; a strong match gets full
+        # strength. Without this, softmax(top-m) always sums to 1, so every bag —
+        # including inactive/novel ones — was pulled toward the active-conformer
+        # direction with the same magnitude.
+        match_gate = (r0_n @ P_n.T).max(dim=-1).values.clamp(0.0, 1.0)
+        active_context = match_gate.unsqueeze(-1) * active_context
+
+        # Concat the unit-normalised r0 (not the raw masked mean) so both halves feed
+        # query_proj at a comparable scale; otherwise the ~unit-magnitude prototype
+        # context is dwarfed by r0's ~||h|| magnitude.
+        query = self.query_proj(torch.cat([r0_n, active_context], dim=-1))
         return query.unsqueeze(1), {
             "proto_top_idx": topi,
             "proto_top_weights": weights_top,
             "num_active_prototypes": K,
             "proto_series_filter_used": series_filter_used,
             "proto_same_series_available": same_series_available,
+            "proto_match_gate": match_gate,
         }

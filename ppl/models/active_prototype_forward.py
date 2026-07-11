@@ -77,10 +77,11 @@ class ActivePrototypeMixin:
         if self.active_prototype_candidate_selection not in {
             "attention",
             "attention_ablation",
+            "gradient",
         }:
             raise ValueError(
-                "candidate_selection must be 'attention' or "
-                f"'attention_ablation', got {self.active_prototype_candidate_selection!r}"
+                "candidate_selection must be 'attention', 'attention_ablation', or "
+                f"'gradient', got {self.active_prototype_candidate_selection!r}"
             )
         self.active_prototype_ablation_candidate_pool = int(
             cfg.get(
@@ -355,6 +356,143 @@ class ActivePrototypeMixin:
             return torch.zeros_like(scores)
         return scores / total.clamp_min(1e-8)
 
+    def _select_gradient_refined_active_candidates(
+        self,
+        z: torch.Tensor,
+        agg_info: Dict[str, Any],
+        labels: torch.Tensor,
+        key_padding_mask: Optional[torch.Tensor],
+        cluster_ids: Optional[torch.Tensor],
+        series_labels: Optional[list[str]],
+        aggregator: nn.Module,
+        predictor: nn.Module,
+    ) -> tuple[torch.Tensor, Optional[list[str]]]:
+        """Select active candidates by attention blended with gradient×input saliency.
+
+        For each active bag the prediction gradient w.r.t. every conformer embedding
+        is obtained in ONE backward pass on the feedback-free BASE path (no
+        external_queries — same anti-self-selection guard as the ablation variant),
+        giving d(pred)/d(z_i) for ALL valid conformers. Unlike the ablation variant
+        there is no top-attention pre-filter, so a high-impact but low-attention
+        conformer can still surface. Per-conformer importance is the gradient×input
+        attribution grad_i · z_i (the first-order counterpart of the ablation delta:
+        positive = the conformer pushes the prediction up), blended with the
+        base-path attention. One forward+backward per active bag replaces 1+pool
+        forwards.
+        """
+        alpha = self._active_prototype_alpha(agg_info)
+        if alpha is None:
+            return z.new_zeros((0, z.size(-1))), None
+        if alpha.dim() == 1:
+            alpha = alpha.unsqueeze(0)
+        if alpha.dim() != 2:
+            raise ValueError(
+                f"Active prototype alpha must have shape [B, N], got {alpha.shape}"
+            )
+
+        B, N, D = z.shape
+        y = labels.flatten().to(device=z.device)
+        active_rows = y >= self.active_prototype_active_threshold
+        if active_rows.sum() == 0:
+            return z.new_zeros((0, D)), None
+
+        if key_padding_mask is None:
+            valid_mask = torch.ones(B, N, device=z.device, dtype=torch.bool)
+        else:
+            valid_mask = ~key_padding_mask.to(device=z.device).bool()
+
+        attn_w = self.active_prototype_ablation_attention_weight
+        grad_w = self.active_prototype_ablation_impact_weight
+        selected: list[torch.Tensor] = []
+        selected_series: Optional[list[str]] = [] if series_labels is not None else None
+        overlaps: list[float] = []
+
+        was_agg_training = aggregator.training
+        was_pred_training = predictor.training
+        aggregator.eval()
+        predictor.eval()
+        try:
+            for b_t in torch.nonzero(active_rows, as_tuple=False).flatten():
+                b = int(b_t.item())
+                valid_idx = torch.nonzero(valid_mask[b], as_tuple=False).flatten()
+                if valid_idx.numel() == 0:
+                    continue
+
+                mask_full = (
+                    torch.zeros(1, N, dtype=torch.bool, device=z.device)
+                    if key_padding_mask is None
+                    else key_padding_mask[b : b + 1].to(device=z.device).bool()
+                )
+                cluster_b = None if cluster_ids is None else cluster_ids[b : b + 1]
+
+                # d(pred)/d(z_i) for every conformer, one backward on the base path.
+                z_b = z[b : b + 1].detach().clone().requires_grad_(True)
+                with torch.enable_grad():
+                    repr_b, _ = self._call_aggregator(
+                        aggregator,
+                        z_b,
+                        key_padding_mask=mask_full,
+                        cluster_ids=cluster_b,
+                        return_attn=False,
+                    )
+                    pred_b = predictor(repr_b).flatten()[0]
+                    grad_b = torch.autograd.grad(pred_b, z_b)[0][0]  # [N, D]
+
+                # gradient×input attribution: positive = conformer inflates the pred.
+                contrib = (grad_b * z_b.detach()[0]).sum(dim=-1)  # [N]
+                if self.active_prototype_ablation_positive_only:
+                    impact = contrib.clamp_min(0.0)
+                else:
+                    impact = contrib.abs()
+
+                alpha_valid = alpha[b, valid_idx].to(device=z.device)
+                impact_valid = impact[valid_idx]
+                alpha_norm = self._normalise_positive_scores(alpha_valid)
+                impact_norm = self._normalise_positive_scores(impact_valid)
+                score = attn_w * alpha_norm + grad_w * impact_norm
+                if float(score.sum().item()) <= 0.0:
+                    score = alpha_norm
+                if float(score.sum().item()) <= 0.0:
+                    score = torch.ones_like(score) / max(1, score.numel())
+
+                keep_k = min(
+                    self.active_prototype_top_m_candidates, int(valid_idx.numel())
+                )
+                keep_local = torch.topk(
+                    score, k=keep_k, largest=True, sorted=False
+                ).indices
+                keep_idx = valid_idx[keep_local]
+                selected.append(z[b, keep_idx].detach())
+                if selected_series is not None:
+                    selected_series.extend(
+                        [str(series_labels[b])] * int(keep_idx.numel())
+                    )
+
+                # Instrument: overlap with pure-attention top-k — does the gradient
+                # term actually change the selection, or just reproduce attention?
+                attn_local = torch.topk(
+                    alpha_norm, k=keep_k, largest=True, sorted=False
+                ).indices
+                overlaps.append(
+                    len(set(keep_local.tolist()) & set(attn_local.tolist()))
+                    / max(1, keep_k)
+                )
+        finally:
+            aggregator.train(was_agg_training)
+            predictor.train(was_pred_training)
+
+        if overlaps:
+            LOGGER.debug(
+                "[ACTIVE_PROTO] gradient selection: mean top-k overlap with "
+                "attention-only = %.2f over %d active bags (1.0 = gradient changed "
+                "nothing; low = it adds independent signal)",
+                sum(overlaps) / len(overlaps),
+                len(overlaps),
+            )
+        if not selected:
+            return z.new_zeros((0, D)), selected_series
+        return torch.cat(selected, dim=0), selected_series
+
     @torch.no_grad()
     def _select_ablation_refined_active_candidates(
         self,
@@ -455,9 +593,6 @@ class ActivePrototypeMixin:
                         continue
                     mask_b = mask_full.clone()
                     mask_b[0, int(idx_t.item())] = True
-                    if (~mask_b[0]).sum() == 0:
-                        impacts.append(z.new_zeros(()))
-                        continue
                     ablated_repr, _ = self._call_aggregator(
                         aggregator,
                         z[b : b + 1],
@@ -535,8 +670,26 @@ class ActivePrototypeMixin:
                     self.active_prototype_bank.active_mask
                 ].sum().item()
             )
+            sel = self.active_prototype_candidate_selection
             if (
-                self.active_prototype_candidate_selection == "attention_ablation"
+                sel == "gradient"
+                and aggregator is not None
+                and predictor is not None
+            ):
+                candidates, candidate_series = (
+                    self._select_gradient_refined_active_candidates(
+                        z=z.detach(),
+                        agg_info=agg_info,
+                        labels=labels.detach(),
+                        key_padding_mask=key_padding_mask,
+                        cluster_ids=cluster_ids,
+                        series_labels=series_labels,
+                        aggregator=aggregator,
+                        predictor=predictor,
+                    )
+                )
+            elif (
+                sel == "attention_ablation"
                 and aggregator is not None
                 and predictor is not None
             ):
