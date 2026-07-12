@@ -13,6 +13,7 @@ import pandas as pd
 from ppl.pipeline.mlflow_utils import log_metrics
 from ppl.pipeline.results_directory import create_results_directory
 from ppl.training.predictions import predict_rows, regression_metrics
+from ppl.training.run_metrics import write_run_metrics
 
 LOGGER = logging.getLogger(__name__)
 
@@ -104,6 +105,7 @@ def export_fit_artifacts(mt, dm, model, best_model, val_metrics) -> None:
             pass
 
         _write_res_txt(mt, results_dir, val_metrics, train_metrics, es_epoch)
+        write_run_metrics(results_dir, mt, dm, plot_model, val_metrics, train_metrics)
     except Exception as e:
         LOGGER.debug(f"[MODEL] Artifact generation in fit_validate failed: {e}")
 
