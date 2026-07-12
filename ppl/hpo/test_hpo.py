@@ -39,3 +39,19 @@ fixed_overrides:
     sampled = ss.sample(FixedTrial({"model.optim.lr": 0.0005}), base_config={})
     assert sampled["model.optim.lr"] == 0.0005
     assert sampled["trainer.max_epochs"] == 5   # fixed override included
+
+
+import yaml
+from ppl.hpo.optuna_runner import TrialConfigBuilder
+
+
+def test_trial_config_builder(tmp_path):
+    base = tmp_path / "base.yaml"
+    base.write_text("trainer:\n  kid_metric_enabled: false\n  max_epochs: 100\n")
+    builder = TrialConfigBuilder(base)
+    out = builder.build({"trainer.max_epochs": 7}, tmp_path / "t0", "exp/t0", "t0")
+    cfg = yaml.safe_load(out.read_text())
+    assert cfg["trainer"]["max_epochs"] == 7
+    assert cfg["trainer"]["kid_metric_enabled"] is True
+    assert cfg["trainer"]["experiment_name"] == "exp/t0"
+    assert cfg["trainer"]["run_name"] == "t0"

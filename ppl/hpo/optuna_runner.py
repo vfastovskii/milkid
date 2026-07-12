@@ -591,6 +591,25 @@ class SearchSpace:
         return merged
 
 
+class TrialConfigBuilder:
+    """Builds a concrete trial config.yaml from base + sampled overrides."""
+
+    def __init__(self, base_config_path) -> None:
+        self.base_config = _load_yaml(Path(base_config_path))
+
+    def build(self, sampled: dict, trial_dir, experiment_name: str, run_name: str) -> Path:
+        trial_dir = Path(trial_dir)
+        trial_dir.mkdir(parents=True, exist_ok=True)
+        config = deepcopy(self.base_config)
+        _apply_overrides(config, sampled)
+        _set_by_dotted_path(config, "trainer.kid_metric_enabled", True)
+        _set_by_dotted_path(config, "trainer.experiment_name", experiment_name)
+        _set_by_dotted_path(config, "trainer.run_name", run_name)
+        config_path = trial_dir / "config.yaml"
+        _write_yaml(config, config_path)
+        return config_path
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run Optuna optimization for a MILK YAML config.",
