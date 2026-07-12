@@ -79,7 +79,7 @@ command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi || true
 REPO_DIR="${REPO_DIR:-/scratch/vfastovskii/milkid_opt_july}"
 PKGDIR="${PKGDIR:-${REPO_DIR}/ppl}"
 DATA_DIR="${DATA_DIR:-${PKGDIR}/data}"
-DATA_CSV="${DATA_CSV:-${DATA_DIR}/bace809_3d_fp_5fp_200c_05prune_6kcal_no_Hs_june_concated_splited.csv}"
+DATA_CSV="${DATA_CSV:-${DATA_DIR}/bace809_200conf_descriptors_and_split.csv}"
 
 BASE_CONFIG="${BASE_CONFIG:-${PKGDIR}/config/experiment_configs/run_config.yaml}"
 SEARCH_SPACE="${SEARCH_SPACE:-${PKGDIR}/config/experiment_configs/optuna_search_space.yaml}"
