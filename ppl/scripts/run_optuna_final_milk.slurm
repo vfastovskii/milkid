@@ -83,6 +83,7 @@ DATA_CSV="${DATA_CSV:-${DATA_DIR}/bace809_3d_fp_5fp_200c_05prune_6kcal_no_Hs_jun
 
 BASE_CONFIG="${BASE_CONFIG:-${PKGDIR}/config/experiment_configs/run_config.yaml}"
 SEARCH_SPACE="${SEARCH_SPACE:-${PKGDIR}/config/experiment_configs/optuna_search_space.yaml}"
+KID_SDF="${KID_SDF:-${PKGDIR}/kid_calculator/bace809_200confs.sdf}"   # pose SDF for the KID objective (git-LFS, ~480MB)
 
 # -------------------- run knobs --------------------
 STUDY_NAME="${STUDY_NAME:-bace809_cluster_hier_mha_optuna}"
@@ -134,6 +135,16 @@ echo "[INFO] Device: device=$DEVICE accelerator=$ACCELERATOR devices=$DEVICES pr
 [[ -f "$DATA_CSV" ]] || { echo "[ERROR] Missing data CSV: $DATA_CSV"; exit 2; }
 [[ -f "$BASE_CONFIG" ]] || { echo "[ERROR] Missing base config: $BASE_CONFIG"; exit 2; }
 [[ -f "$SEARCH_SPACE" ]] || { echo "[ERROR] Missing search space: $SEARCH_SPACE"; exit 2; }
+[[ -f "$KID_SDF" ]] || { echo "[ERROR] Missing KID SDF: $KID_SDF"; exit 2; }
+# The KID objective (val_rmsd_top1) needs the real pose SDF. A fresh clone leaves it as a
+# git-LFS pointer, which RDKit reports as "Bad input file" -> KID silently disabled -> every
+# HPO trial's objective is null and the study is worthless. Fail fast with instructions.
+if head -c 64 "$KID_SDF" | grep -q "git-lfs"; then
+  echo "[ERROR] KID SDF is an unresolved git-LFS pointer, not the real ~480MB file: $KID_SDF"
+  echo "[ERROR] Resolve it before submitting, e.g.:  (cd \"$REPO_DIR\" && git lfs pull)"
+  echo "[ERROR] Without it KID cannot be computed and every HPO trial fails."
+  exit 2
+fi
 
 # Run in place: no staging copy, the data CSV is read directly from scratch.
 export PYTHONPATH="$WORKDIR:${PYTHONPATH:-}"
