@@ -724,6 +724,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> None:
+    raise SystemExit(
+        "optuna_final_pipeline.py targets the removed single-metric HPO CLI and is not yet "
+        "updated for the multi-objective runner. Use `python -m ppl.hpo.optuna_runner "
+        "--search-space ...` directly, which writes pareto_front.json. Updating this two-phase "
+        "flow to consume pareto_front.json is a tracked follow-up."
+    )
     args = build_arg_parser().parse_args(argv)
     logging.basicConfig(
         level=getattr(logging, args.runner_log_level.upper(), logging.INFO),
