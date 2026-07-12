@@ -178,6 +178,7 @@ def _retrain_over_seeds(
         # HPO trials leave these OFF for speed (search-space fixed_overrides).
         _set_by_dotted_path(cfg, "trainer.save_attention_artifacts", True)
         _set_by_dotted_path(cfg, "trainer.log_per_epoch", True)
+        _set_by_dotted_path(cfg, "trainer.enable_progress_bar", True)   # per-epoch bar for the final model
         cfg_path = output_dir / "configs" / f"final_seed{seed}.yaml"
         _write_yaml(cfg, cfg_path)
 

@@ -316,6 +316,8 @@ class MilkObjective:
         experiment_name = f"{self.base_experiment}_optuna/{trial_name}"
         sampled = self.search_space.sample(trial, self.config_builder.base_config)
         config_path = self.config_builder.build(sampled, trial_dir, experiment_name, trial_name)
+        LOGGER.info("[HPO] ▶ trial %d training — %s (log: %s)",
+                    trial.number, experiment_name, trial_dir / "trial.log")
         results_dir = self.runner.run(config_path, experiment_name, trial_dir / "trial.log")
         metrics = RunMetrics.from_dir(results_dir)
         rmsd_top1, rmse = metrics.objectives()
@@ -323,6 +325,10 @@ class MilkObjective:
         trial.set_user_attr("val_rmsd_top1", rmsd_top1)
         trial.set_user_attr("val_rmse", rmse)
         return rmsd_top1, rmse
+
+
+def _count_complete(study) -> int:
+    return sum(1 for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE)
 
 
 class HpoStudy:
@@ -345,10 +351,29 @@ class HpoStudy:
             directions=["maximize", "minimize"],
             sampler=optuna.samplers.NSGAIISampler(seed=self.seed),
         )
+        prior = _count_complete(study)  # trials already done (when resuming a study)
+
+        def _log_progress(study: "optuna.Study", trial) -> None:
+            done = _count_complete(study) - prior
+            if trial.values:
+                status = f"val_rmsd_top1={trial.values[0]:.4f} val_rmse={trial.values[1]:.4f}"
+            else:
+                status = f"{trial.state.name} — no objectives (trial failed, study continues)"
+            comp = [t for t in study.trials
+                    if t.state == optuna.trial.TrialState.COMPLETE and t.values]
+            best = max(comp, key=lambda t: (t.values[0], -t.values[1])) if comp else None
+            best_s = (f"best val_rmsd_top1={best.values[0]:.4f} @trial#{best.number}"
+                      if best else "no completed trials yet")
+            LOGGER.info("[HPO] ✓ trial %d finished — %d/%d this run — %s — %s",
+                        trial.number, max(done, 0), n_trials, status, best_s)
+
         # n_jobs>1 runs trials concurrently (threads, each blocking on a training subprocess),
         # so several trainings share the one GPU. Failed trials are caught so the study continues.
+        # show_progress_bar renders a trial bar in a real terminal; through the pipeline's log
+        # pipe tqdm auto-disables, and the per-trial "✓ trial N — k/total" lines carry progress.
         study.optimize(self.objective, n_trials=n_trials, n_jobs=n_jobs,
-                       catch=(Exception,), gc_after_trial=True)
+                       catch=(Exception,), gc_after_trial=True,
+                       callbacks=[_log_progress], show_progress_bar=(n_jobs == 1))
         self._write_pareto(study)
         return study
 
