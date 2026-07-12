@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import re
+from pathlib import Path
 from typing import Optional, Sequence
 
 import numpy as np
@@ -36,6 +37,28 @@ _PDB_ID_PATTERN = re.compile(r"^[0-9][A-Za-z0-9]{3}(?:_|$)", re.IGNORECASE)
 
 def is_pdb_molecule(mol_id: str) -> bool:
     return _PDB_ID_PATTERN.match(str(mol_id)) is not None
+
+
+def _resolve_sdf_path(sdf_path) -> str:
+    """Resolve a (possibly repo-relative) SDF path independently of the current working dir.
+
+    kid_sdf_path is stored relative to the repo root (e.g. 'ppl/kid_calculator/foo.sdf'),
+    but training runs in a nested subprocess whose cwd is the package root (<repo>/ppl). A
+    bare cwd-relative open would then look for <repo>/ppl/ppl/kid_calculator/... and fail
+    with RDKit's misleading "Bad input file". Try the path as-given (absolute / cwd-relative),
+    then the repo root, then the package root; fall back to the given path so RDKit still
+    raises with it.
+    """
+    p = Path(sdf_path).expanduser()
+    if p.is_absolute():
+        return str(p)
+    package_root = Path(__file__).resolve().parents[1]   # ppl/
+    repo_root = Path(__file__).resolve().parents[2]       # repo root (parent of ppl/)
+    for base in (Path.cwd(), repo_root, package_root):
+        candidate = base / p
+        if candidate.exists():
+            return str(candidate)
+    return str(p)
 
 
 class KidCalculator:
@@ -58,6 +81,7 @@ class KidCalculator:
         self.active_threshold = float(active_threshold)
         self.pred_tol = float(pred_tol)
         self.pdb_only = bool(pdb_only)
+        sdf_path = _resolve_sdf_path(sdf_path)
         self._rmsd, self._o3a = self._load_sdf(sdf_path)
         LOGGER.info(
             "[KID] loaded pose properties for %d conformers (rmsd) / %d (o3a) from %s",

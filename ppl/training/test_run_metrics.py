@@ -82,3 +82,16 @@ def test_write_run_metrics_kid_disabled_gives_null(monkeypatch, tmp_path):
                                {"val_rmse": 1.07}, {"train_rmse": 1.17})
     assert out["val_rmse"] == 1.07
     assert out["val_rmsd_top1"] is None
+
+
+def test_resolve_sdf_path_is_cwd_independent(monkeypatch, tmp_path):
+    from pathlib import Path
+    from ppl.training.kid_calculator import _resolve_sdf_path
+    rel = "ppl/training/kid_calculator.py"          # a real repo file (not the 480MB SDF)
+    repo_root = Path(__file__).resolve().parents[2]
+    monkeypatch.chdir(tmp_path)                      # cwd where the relative path does NOT exist
+    resolved = Path(_resolve_sdf_path(rel))
+    assert resolved == repo_root / rel and resolved.exists()   # resolved via repo root, not cwd
+    ap = str(repo_root / rel)
+    assert _resolve_sdf_path(ap) == ap                          # absolute passes through
+    assert _resolve_sdf_path("does/not/exist.sdf") == "does/not/exist.sdf"  # fallback as-given
