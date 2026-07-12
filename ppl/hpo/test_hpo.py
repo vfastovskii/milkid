@@ -101,3 +101,20 @@ def test_milk_objective_returns_tuple(tmp_path):
     obj = MilkObjective(_StubSS(), _StubBuilder(), _StubRunner(results),
                         trial_root=tmp_path, base_experiment="exp")
     assert obj(_FT({})) == (0.61, 1.07)
+
+
+from ppl.hpo.optuna_runner import HpoStudy
+
+
+def test_hpo_study_multiobjective(tmp_path):
+    # objective callable that ignores the trial and returns a fixed Pareto-ish pair
+    def objective(trial):
+        x = trial.suggest_float("x", 0.0, 1.0)
+        return x, 1.0 - x  # maximize x, minimize (1-x)
+    study = HpoStudy(objective, study_name="t", out_dir=tmp_path)
+    result = study.run(n_trials=5)
+    assert result.directions[0].name == "MAXIMIZE"
+    assert result.directions[1].name == "MINIMIZE"
+    assert (tmp_path / "pareto_front.json").exists()
+    front = __import__("json").loads((tmp_path / "pareto_front.json").read_text())
+    assert isinstance(front, list) and len(front) >= 1
