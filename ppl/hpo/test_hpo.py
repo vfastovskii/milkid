@@ -77,3 +77,27 @@ def test_pipeline_runner_failure_raises(tmp_path, monkeypatch):
     import pytest
     with pytest.raises(RuntimeError):
         runner.run(tmp_path / "config.yaml", "exp/t0", tmp_path / "t.log")
+
+
+import json as _json
+from optuna.trial import FixedTrial as _FT
+from ppl.hpo.optuna_runner import MilkObjective
+
+
+class _StubSS:
+    def sample(self, trial, base_config): return {"a": 1}
+class _StubBuilder:
+    base_config = {}
+    def build(self, sampled, trial_dir, exp, run):
+        _P(trial_dir).mkdir(parents=True, exist_ok=True); return _P(trial_dir) / "config.yaml"
+class _StubRunner:
+    def __init__(self, results): self.results = results
+    def run(self, config_path, experiment_name, log_path): return self.results
+
+
+def test_milk_objective_returns_tuple(tmp_path):
+    results = tmp_path / "res"; results.mkdir()
+    (results / "run_metrics.json").write_text(_json.dumps({"val_rmsd_top1": 0.61, "val_rmse": 1.07}))
+    obj = MilkObjective(_StubSS(), _StubBuilder(), _StubRunner(results),
+                        trial_root=tmp_path, base_experiment="exp")
+    assert obj(_FT({})) == (0.61, 1.07)

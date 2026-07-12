@@ -23,6 +23,8 @@ import optuna
 import yaml
 from optuna.trial import TrialState
 
+from ppl.hpo.run_metrics_reader import RunMetrics
+
 
 LOGGER = logging.getLogger(__name__)
 METRIC_RE = re.compile(r"^\s*(?P<key>[A-Za-z0-9_./:-]+)\s*:\s*(?P<value>[-+0-9.eE]+)\s*$")
@@ -644,6 +646,32 @@ class PipelineRunner:
                 f"--- log tail ---\n{tail}"
             )
         return results_dir
+
+
+class MilkObjective:
+    """One Optuna trial: sample -> build config -> run pipeline -> read (rmsd_top1, rmse)."""
+
+    def __init__(self, search_space, config_builder, runner, *, trial_root, base_experiment) -> None:
+        self.search_space = search_space
+        self.config_builder = config_builder
+        self.runner = runner
+        self.trial_root = Path(trial_root)
+        self.base_experiment = base_experiment
+
+    def __call__(self, trial) -> tuple[float, float]:
+        trial_name = _trial_name(trial.study.study_name, trial.number) if hasattr(trial, "study") \
+            else f"trial_{trial.number:04d}"
+        trial_dir = self.trial_root / trial_name
+        experiment_name = f"{self.base_experiment}_optuna/{trial_name}"
+        sampled = self.search_space.sample(trial, self.config_builder.base_config)
+        config_path = self.config_builder.build(sampled, trial_dir, experiment_name, trial_name)
+        results_dir = self.runner.run(config_path, experiment_name, trial_dir / "trial.log")
+        metrics = RunMetrics.from_dir(results_dir)
+        rmsd_top1, rmse = metrics.objectives()
+        trial.set_user_attr("results_dir", str(results_dir))
+        trial.set_user_attr("val_rmsd_top1", rmsd_top1)
+        trial.set_user_attr("val_rmse", rmse)
+        return rmsd_top1, rmse
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
