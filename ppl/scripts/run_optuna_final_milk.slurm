@@ -184,71 +184,34 @@ mkdir -p "$MPLCONFIGDIR"
 cd "$WORKDIR"
 python3 -c "import ppl; print('[INFO] ppl import OK from', ppl.__file__)"
 
+# Objectives are fixed (maximize val_rmsd_top1, minimize val_rmse); the runner resumes
+# an existing study automatically. The lean pipeline retrains the highest-rmsd_top1
+# Pareto-front config over CONFIRMATION_SEEDS; the removed --metric/--final-*/timeout
+# knobs live in the base config / search space now.
 CMD=(
   python3 -m ppl.hpo.optuna_final_pipeline
-  --search-space "$WORKDIR/ppl/config/experiment_configs/optuna_search_space_bace809_cluster_hier_mha.yaml"
+  --search-space "$WORKDIR/ppl/config/experiment_configs/optuna_search_space.yaml"
   --base-config "$WORKDIR/ppl/config/experiment_configs/run_config.yaml"
   --data-csv "$DATA_CSV_LOCAL"
   --output-dir "$STUDY_DIR"
   --trial-root "$STUDY_DIR/trials"
   --study-name "$STUDY_NAME"
   --n-trials "$TRIALS"
-  --metric "$METRIC"
   --device "$DEVICE"
   --accelerator "$ACCELERATOR"
   --devices "$DEVICES"
   --precision "$PRECISION"
   --num-workers "$NUM_WORKERS"
   --log-level "$LOG_LEVEL"
-  --runner-log-level "$LOG_LEVEL"
-  --final-run-name "$FINAL_RUN_NAME"
 )
 
-if [[ "$PIN_MEMORY" == "1" ]]; then
-  CMD+=(--pin-memory)
-else
-  CMD+=(--no-pin-memory)
+# Retrain the selected config over these seeds (stability). Space-separated, e.g. "42 43 44".
+if [[ -n "${CONFIRMATION_SEEDS:-}" ]]; then
+  CMD+=(--confirmation-seeds ${CONFIRMATION_SEEDS})
 fi
-
-if [[ -n "$FINAL_EXPERIMENT_NAME" ]]; then
-  CMD+=(--final-experiment-name "$FINAL_EXPERIMENT_NAME")
-fi
-if [[ -n "$FINAL_LOG_SAVE_DIR" ]]; then
-  CMD+=(--final-log-save-dir "$FINAL_LOG_SAVE_DIR")
-fi
-if [[ "$FINAL_STAGE2" == "1" ]]; then
-  CMD+=(--final-stage2)
-else
-  CMD+=(--no-final-stage2)
-fi
-if [[ "$SAVE_FINAL_ATTENTION" == "1" ]]; then
-  CMD+=(--save-final-attention)
-else
-  CMD+=(--no-save-final-attention)
-fi
-if [[ "$FINAL_VALIDATION_INSTANCE_IMPORTANCE" == "1" ]]; then
-  CMD+=(--final-validation-instance-importance)
-else
-  CMD+=(--no-final-validation-instance-importance)
-fi
-if [[ "$FINAL_LOG_PER_EPOCH" == "1" ]]; then
-  CMD+=(--final-log-per-epoch)
-fi
-if [[ "$FINAL_PROGRESS_BAR" == "1" ]]; then
-  CMD+=(--final-progress-bar)
-fi
-if [[ "$FINAL_MODEL_SUMMARY" == "1" ]]; then
-  CMD+=(--final-model-summary)
-fi
-
-if [[ "$LOAD_IF_EXISTS" == "1" ]]; then
-  CMD+=(--load-if-exists)
-fi
-if [[ -n "$STUDY_TIMEOUT" ]]; then
-  CMD+=(--study-timeout "$STUDY_TIMEOUT")
-fi
-if [[ -n "$TRIAL_TIMEOUT" ]]; then
-  CMD+=(--trial-timeout "$TRIAL_TIMEOUT")
+# Set SKIP_HPO=1 to reuse an existing pareto_front.json and jump to selection + retrain.
+if [[ "${SKIP_HPO:-0}" == "1" ]]; then
+  CMD+=(--skip-hpo)
 fi
 printf '[INFO] CMD:'
 printf ' %q' "${CMD[@]}"

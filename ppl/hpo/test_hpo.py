@@ -135,3 +135,17 @@ def test_hpo_study_continues_past_failed_trials(tmp_path):
     failed = [t for t in result.trials if t.state == optuna.trial.TrialState.FAIL]
     assert len(completed) >= 1 and len(failed) >= 1   # some failed, study continued
     assert (tmp_path / "pareto_front.json").exists()
+
+
+def test_final_pipeline_selects_best_rmsd_top1(tmp_path):
+    import json
+    import ppl.hpo.optuna_final_pipeline as fp
+    front = [
+        {"number": 1, "params": {"a": 1}, "val_rmsd_top1": 0.60, "val_rmse": 1.10},
+        {"number": 2, "params": {"a": 2}, "val_rmsd_top1": 0.75, "val_rmse": 1.30},
+        {"number": 3, "params": {"a": 3}, "val_rmsd_top1": 0.75, "val_rmse": 1.05},  # tie -> lower rmse wins
+        {"number": 4, "params": {"a": 4}, "val_rmsd_top1": None, "val_rmse": 1.0},   # unusable, skipped
+    ]
+    (tmp_path / "pareto_front.json").write_text(json.dumps(front))
+    best = fp._select_best_from_pareto(tmp_path / "pareto_front.json")
+    assert best["number"] == 3
