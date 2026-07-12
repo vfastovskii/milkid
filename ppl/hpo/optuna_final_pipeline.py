@@ -288,11 +288,16 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("No base_config (pass --base-config or set it in the search space).")
     base_config_path = _resolve_path(base_config, bases=bases)
 
-    output_dir = Path(args.output_dir) if args.output_dir else (
-        package_root / "results" / f"{args.study_name}_final_pipeline"
-    )
+    # Resolve to ABSOLUTE paths: the runner + training run in subprocesses whose cwd is the
+    # package root (<repo>/ppl), so a relative --output-dir/--trial-root would fork into two
+    # different roots (pipeline writes results/, runner writes ppl/results/) and the pipeline
+    # would then fail to find pareto_front.json. Absolute paths keep everything in one place.
+    output_dir = (
+        Path(args.output_dir) if args.output_dir
+        else package_root / "results" / f"{args.study_name}_final_pipeline"
+    ).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    trial_root = Path(args.trial_root) if args.trial_root else output_dir / "optuna_trials"
+    trial_root = (Path(args.trial_root) if args.trial_root else output_dir / "optuna_trials").resolve()
     storage = args.storage or f"sqlite:///{trial_root / 'study.db'}"
 
     runtime_base_path, runtime_search_path = _prepare_runtime_configs(
