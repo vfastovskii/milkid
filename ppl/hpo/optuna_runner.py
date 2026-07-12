@@ -28,7 +28,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 def _repo_root() -> Path:
-    # ppl/utils/optuna_runner.py -> milk_udt
+    # this file is ppl/hpo/optuna_runner.py; parents[2] is the repo root
     return Path(__file__).resolve().parents[2]
 
 

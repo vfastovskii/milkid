@@ -74,8 +74,9 @@ export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi || true
 
 # -------------------- project / data paths --------------------
-# Repository root on the shared filesystem.
-REPO_DIR="${REPO_DIR:-/scratch/vfastovskii/milk_udt}"
+# Repository root on persistent scratch. The job runs HERE in place — no node-local /tmp
+# and no staging copy.
+REPO_DIR="${REPO_DIR:-/scratch/vfastovskii/milkid_opt_july}"
 PKGDIR="${PKGDIR:-${REPO_DIR}/ppl}"
 DATA_DIR="${DATA_DIR:-${PKGDIR}/data}"
 DATA_CSV="${DATA_CSV:-${DATA_DIR}/bace809_3d_fp_5fp_200c_05prune_6kcal_no_Hs_june_concated_splited.csv}"
@@ -96,33 +97,31 @@ PRECISION="${PRECISION:-32-true}"
 NUM_WORKERS="${NUM_WORKERS:-10}"
 LOG_LEVEL="${LOG_LEVEL:-INFO}"
 
-# -------------------- persistent scratch (NOT node-local /tmp) --------------------
-# Everything — staged code, study DB, trial configs, pipeline results, mpl cache — lives
-# under one persistent scratch dir. Nothing is written to node-local /tmp, so nothing is
-# lost when the node is reclaimed and no end-of-job copy-back is needed. Because the study
-# DB persists here, a re-submitted job resumes the same Optuna study automatically.
+# -------------------- run in place on persistent scratch --------------------
+# The job runs directly from REPO_DIR (persistent scratch) — no node-local /tmp, no staging
+# copy, no end-of-job copy-back. All outputs (study DB, trial configs, pipeline results, mpl
+# cache) stay under REPO_DIR, so nothing is lost when the node is reclaimed and the study DB
+# resumes across re-submitted jobs.
 JOB_ID="${SLURM_JOB_ID:-local}"
-SCRATCH_BASE="${SCRATCH_BASE:-/scratch/vfastovskii/milkid_opt_july}"
-WORKDIR="${WORKDIR:-${SCRATCH_BASE}}"
-STUDY_DIR="${WORKDIR}/study"
-
-mkdir -p "$WORKDIR" "$STUDY_DIR"
+WORKDIR="${WORKDIR:-${REPO_DIR}}"
+STUDY_DIR="${WORKDIR}/optuna_study"
+mkdir -p "$STUDY_DIR"
 
 report_outputs() {
   local rc=$?
   trap - EXIT
-  echo "[INFO] exit_code=${rc}. All outputs are already in persistent scratch (no copy-back):"
+  echo "[INFO] exit_code=${rc}. All outputs are in persistent scratch:"
   echo "[INFO]   study dir:        $STUDY_DIR"
   echo "[INFO]   pareto front:     $STUDY_DIR/trials/pareto_front.json"
   echo "[INFO]   pipeline summary: $STUDY_DIR/final_pipeline_summary.json"
-  echo "[INFO]   training results: $WORKDIR/ppl/results/"
+  echo "[INFO]   training results: $PKGDIR/results/"
   exit "$rc"
 }
 trap report_outputs EXIT
 
 echo "[INFO] JobID: ${JOB_ID}"
 echo "[INFO] Host: $(hostname)"
-echo "[INFO] Scratch workdir (persistent): $WORKDIR"
+echo "[INFO] Workdir (run in place on scratch): $WORKDIR"
 echo "[INFO] Study dir: $STUDY_DIR"
 echo "[INFO] Package dir: $PKGDIR"
 echo "[INFO] Data CSV: $DATA_CSV"
@@ -136,22 +135,7 @@ echo "[INFO] Device: device=$DEVICE accelerator=$ACCELERATOR devices=$DEVICES pr
 [[ -f "$BASE_CONFIG" ]] || { echo "[ERROR] Missing base config: $BASE_CONFIG"; exit 2; }
 [[ -f "$SEARCH_SPACE" ]] || { echo "[ERROR] Missing search space: $SEARCH_SPACE"; exit 2; }
 
-echo "[INFO] Stage package + input CSV into the scratch workdir (so pipeline results land in scratch too)..."
-rsync -av \
-  --exclude="__pycache__" \
-  --exclude="*.pyc" \
-  --exclude="*.pyo" \
-  --exclude=".git" \
-  --exclude="results" \
-  --exclude="*_log" \
-  --exclude="*_log_*" \
-  --exclude="optuna_trials" \
-  "$PKGDIR" "$WORKDIR/"
-
-mkdir -p "$WORKDIR/data"
-cp -v "$DATA_CSV" "$WORKDIR/data/"
-DATA_CSV_LOCAL="$WORKDIR/data/$(basename "$DATA_CSV")"
-
+# Run in place: no staging copy, the data CSV is read directly from scratch.
 export PYTHONPATH="$WORKDIR:${PYTHONPATH:-}"
 export MPLCONFIGDIR="${MPLCONFIGDIR:-$WORKDIR/mplconfig}"
 mkdir -p "$MPLCONFIGDIR"
@@ -165,9 +149,9 @@ python3 -c "import ppl; print('[INFO] ppl import OK from', ppl.__file__)"
 # knobs live in the base config / search space now.
 CMD=(
   python3 -m ppl.hpo.optuna_final_pipeline
-  --search-space "$WORKDIR/ppl/config/experiment_configs/optuna_search_space.yaml"
-  --base-config "$WORKDIR/ppl/config/experiment_configs/run_config.yaml"
-  --data-csv "$DATA_CSV_LOCAL"
+  --search-space "$SEARCH_SPACE"
+  --base-config "$BASE_CONFIG"
+  --data-csv "$DATA_CSV"
   --output-dir "$STUDY_DIR"
   --trial-root "$STUDY_DIR/trials"
   --study-name "$STUDY_NAME"
