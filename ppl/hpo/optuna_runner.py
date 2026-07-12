@@ -345,7 +345,7 @@ class HpoStudy:
             directions=["maximize", "minimize"],
             sampler=optuna.samplers.NSGAIISampler(seed=self.seed),
         )
-        study.optimize(self.objective, n_trials=n_trials)
+        study.optimize(self.objective, n_trials=n_trials, catch=(Exception,), gc_after_trial=True)
         self._write_pareto(study)
         return study
 

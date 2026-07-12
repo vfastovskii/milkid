@@ -118,3 +118,20 @@ def test_hpo_study_multiobjective(tmp_path):
     assert (tmp_path / "pareto_front.json").exists()
     front = __import__("json").loads((tmp_path / "pareto_front.json").read_text())
     assert isinstance(front, list) and len(front) >= 1
+
+
+def test_hpo_study_continues_past_failed_trials(tmp_path):
+    calls = {"n": 0}
+    def flaky(trial):
+        x = trial.suggest_float("x", 0.0, 1.0)
+        calls["n"] += 1
+        if calls["n"] % 2 == 0:
+            raise RuntimeError("simulated trial failure")
+        return x, 1.0 - x
+    study = HpoStudy(flaky, study_name="t_flaky", out_dir=tmp_path)
+    result = study.run(n_trials=6)            # must NOT raise
+    import optuna
+    completed = [t for t in result.trials if t.state == optuna.trial.TrialState.COMPLETE]
+    failed = [t for t in result.trials if t.state == optuna.trial.TrialState.FAIL]
+    assert len(completed) >= 1 and len(failed) >= 1   # some failed, study continued
+    assert (tmp_path / "pareto_front.json").exists()
