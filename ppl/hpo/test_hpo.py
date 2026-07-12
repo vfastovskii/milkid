@@ -55,3 +55,25 @@ def test_trial_config_builder(tmp_path):
     assert cfg["trainer"]["kid_metric_enabled"] is True
     assert cfg["trainer"]["experiment_name"] == "exp/t0"
     assert cfg["trainer"]["run_name"] == "t0"
+
+
+import subprocess
+import types
+from pathlib import Path as _P
+from ppl.hpo.optuna_runner import PipelineRunner
+
+
+def test_pipeline_runner_success(tmp_path, monkeypatch):
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=0))
+    runner = PipelineRunner(package_root=tmp_path, repo_root=tmp_path)
+    results = runner.run(tmp_path / "config.yaml", "exp/t0", tmp_path / "t.log")
+    assert results == tmp_path / "results" / "exp/t0"
+
+
+def test_pipeline_runner_failure_raises(tmp_path, monkeypatch):
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=1))
+    (tmp_path / "t.log").write_text("boom")
+    runner = PipelineRunner(package_root=tmp_path, repo_root=tmp_path)
+    import pytest
+    with pytest.raises(RuntimeError):
+        runner.run(tmp_path / "config.yaml", "exp/t0", tmp_path / "t.log")

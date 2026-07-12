@@ -610,6 +610,42 @@ class TrialConfigBuilder:
         return config_path
 
 
+class PipelineRunner:
+    """Runs the MILK pipeline as an isolated subprocess for one trial."""
+
+    def __init__(self, package_root, repo_root, log_level: str = "INFO", timeout=None) -> None:
+        self.package_root = Path(package_root)
+        self.repo_root = Path(repo_root)
+        self.log_level = log_level
+        self.timeout = timeout
+
+    def run(self, config_path, experiment_name: str, log_path) -> Path:
+        cmd = [sys.executable, "-m", "ppl.cli.entry_point",
+               "-c", str(config_path), "--log-level", self.log_level]
+        env = os.environ.copy()
+        env["PYTHONPATH"] = os.pathsep.join(
+            [str(self.repo_root), env.get("PYTHONPATH", "")]
+        ).rstrip(os.pathsep)
+        env.setdefault("MPLCONFIGDIR", "/tmp")
+        with Path(log_path).open("w") as log_file:
+            completed = subprocess.run(
+                cmd, cwd=self.package_root, env=env,
+                stdout=log_file, stderr=subprocess.STDOUT,
+                text=True, timeout=self.timeout, check=False,
+            )
+        results_dir = self.package_root / "results" / experiment_name
+        if completed.returncode != 0:
+            tail = ""
+            lp = Path(log_path)
+            if lp.exists():
+                tail = "\n".join(lp.read_text(errors="replace").splitlines()[-60:])
+            raise RuntimeError(
+                f"pipeline exited {completed.returncode}; see {log_path}\n"
+                f"--- log tail ---\n{tail}"
+            )
+        return results_dir
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run Optuna optimization for a MILK YAML config.",
