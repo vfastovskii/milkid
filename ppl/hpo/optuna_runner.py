@@ -568,6 +568,29 @@ class MilkOptunaObjective:
         return value
 
 
+class SearchSpace:
+    """Loads a grouped search-space YAML and samples per-trial overrides."""
+
+    def __init__(self, path, phase: str = "all") -> None:
+        self.path = Path(path)
+        self.data = _load_yaml(self.path)
+        self.phase = phase
+        self.include_groups, self.force_overrides = _phase_settings(self.data, phase)
+
+    def sample(self, trial, base_config: dict) -> dict:
+        sampled = _sample_overrides(
+            trial, self.data,
+            include_groups=self.include_groups,
+            force_overrides=self.force_overrides,
+        )
+        probe = deepcopy(base_config)
+        _apply_overrides(probe, dict(self.data.get("fixed_overrides", {}) or {}))
+        sampled = _filter_conditional_overrides(self.data, probe, sampled)
+        merged = dict(self.data.get("fixed_overrides", {}) or {})
+        merged.update(sampled)
+        return merged
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run Optuna optimization for a MILK YAML config.",

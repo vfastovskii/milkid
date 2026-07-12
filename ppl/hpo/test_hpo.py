@@ -1,7 +1,9 @@
 import json
 import math
 import pytest
+from optuna.trial import FixedTrial
 from ppl.hpo.run_metrics_reader import RunMetrics, RunMetricsError
+from ppl.hpo.optuna_runner import SearchSpace
 
 
 def test_run_metrics_objectives(tmp_path):
@@ -19,3 +21,21 @@ def test_run_metrics_null_objective_raises(tmp_path):
     (tmp_path / "run_metrics.json").write_text(json.dumps({"val_rmsd_top1": None, "val_rmse": 1.07}))
     with pytest.raises(RunMetricsError):
         RunMetrics.from_dir(tmp_path).objectives()
+
+
+def test_search_space_samples(tmp_path):
+    ss_yaml = """
+groups:
+  optim:
+    model.optim.lr:
+      type: categorical
+      choices: [0.001, 0.0005]
+fixed_overrides:
+  trainer.max_epochs: 5
+"""
+    p = tmp_path / "ss.yaml"
+    p.write_text(ss_yaml)
+    ss = SearchSpace(p, phase="all")
+    sampled = ss.sample(FixedTrial({"model.optim.lr": 0.0005}), base_config={})
+    assert sampled["model.optim.lr"] == 0.0005
+    assert sampled["trainer.max_epochs"] == 5   # fixed override included
