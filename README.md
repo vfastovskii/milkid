@@ -262,13 +262,22 @@ Select the Poetry environment as the Jupyter kernel and run `git lfs pull` first
 
 ## Hyperparameter optimization (optional)
 
-Optuna-based search + final retrain lives in `ppl/hpo`:
+Multi-objective Optuna search lives in `ppl/hpo/optuna_runner.py` — it maximizes
+`val_rmsd_top1` and minimizes `val_rmse` (read from each trial's `run_metrics.json`):
 
 ```bash
-poetry run python -m ppl.hpo.optuna_final_pipeline \
-  --base-config ppl/config/experiment_configs/run_config.yaml \
-  --search-space ppl/config/experiment_configs/<search_space>.yaml \
-  --n-trials 40 --metric val_rmse
+poetry run python -m ppl.hpo.optuna_runner \
+  --search-space ppl/config/experiment_configs/optuna_search_space.yaml \
+  --n-trials 40
 ```
 
-A SLURM launcher is provided at `ppl/scripts/run_optuna_final_milk.slurm`.
+Each trial samples overrides from the search-space YAML (see that file for the format),
+writes a concrete `config.yaml`, and runs the normal MILK CLI as a subprocess. Trial
+configs/logs land under `ppl/optuna_trials/<study-name>/` by default (`--trial-root` to
+override), and the non-dominated set is written to `<trial-root>/pareto_front.json` when
+the study finishes. Pass `--dry-run` to sample and write trial configs without launching
+training — useful for sanity-checking a search-space YAML.
+
+`ppl/hpo/optuna_final_pipeline.py` (final retrain from search results) and the SLURM
+launcher at `ppl/scripts/run_optuna_final_milk.slurm` still target the older single-metric
+flow; a follow-up will point them at `pareto_front.json`.

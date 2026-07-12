@@ -1,0 +1,28 @@
+# Example multi-objective search space for ppl/hpo/optuna_runner.py.
+# Maximizes val_rmsd_top1, minimizes val_rmse (see ppl.hpo.optuna_runner.HpoStudy).
+#
+# `groups.<group>.<dotted.config.path>` entries are sampled per trial and
+# applied onto base_config. `fixed_overrides` are applied to every trial
+# unconditionally (in addition to any sampled values).
+base_config: ppl/config/experiment_configs/run_config.yaml
+
+groups:
+  optim:
+    model.optim.lr:
+      type: float
+      low: 1.0e-4
+      high: 3.0e-3
+      log: true
+
+  batching:
+    data.batch_size:
+      type: categorical
+      choices: [13, 26, 39]
+
+  model_dim:
+    model.embedder_kwargs.embed_dim:
+      type: categorical
+      choices: [128, 256, 384]
+
+fixed_overrides:
+  trainer.max_epochs: 60
