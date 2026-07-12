@@ -337,7 +337,7 @@ class HpoStudy:
         self.storage = storage
         self.seed = seed
 
-    def run(self, n_trials: int) -> "optuna.Study":
+    def run(self, n_trials: int, n_jobs: int = 1) -> "optuna.Study":
         study = optuna.create_study(
             study_name=self.study_name,
             storage=self.storage,
@@ -345,7 +345,10 @@ class HpoStudy:
             directions=["maximize", "minimize"],
             sampler=optuna.samplers.NSGAIISampler(seed=self.seed),
         )
-        study.optimize(self.objective, n_trials=n_trials, catch=(Exception,), gc_after_trial=True)
+        # n_jobs>1 runs trials concurrently (threads, each blocking on a training subprocess),
+        # so several trainings share the one GPU. Failed trials are caught so the study continues.
+        study.optimize(self.objective, n_trials=n_trials, n_jobs=n_jobs,
+                       catch=(Exception,), gc_after_trial=True)
         self._write_pareto(study)
         return study
 
@@ -371,6 +374,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--study-name", default="milk_hpo")
     p.add_argument("--storage", default=None, help="e.g. sqlite:///ppl/optuna_trials/study.db")
     p.add_argument("--n-trials", type=int, default=20)
+    p.add_argument("--n-jobs", type=int, default=1,
+                   help="Parallel trials (each a training subprocess); on a single GPU keep small (2-3).")
     p.add_argument("--phase", default="all")
     p.add_argument("--trial-root", default=None, help="Where trial dirs are written.")
     p.add_argument("--log-level", default="INFO")
@@ -415,7 +420,7 @@ def main(argv: list[str] | None = None) -> int:
     objective = MilkObjective(search_space, config_builder, runner,
                               trial_root=trial_root, base_experiment=base_experiment)
     HpoStudy(objective, study_name=args.study_name, out_dir=trial_root,
-             storage=args.storage).run(args.n_trials)
+             storage=args.storage).run(args.n_trials, n_jobs=args.n_jobs)
     return 0
 
 

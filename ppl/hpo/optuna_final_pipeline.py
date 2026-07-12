@@ -103,6 +103,7 @@ def _run_hpo(
     study_name: str,
     storage: str,
     n_trials: int,
+    n_jobs: int,
     trial_root: Path,
     log_level: str,
     env: dict[str, str],
@@ -118,6 +119,7 @@ def _run_hpo(
         "--storage", storage,
         "--trial-root", str(trial_root),
         "--n-trials", str(n_trials),
+        "--n-jobs", str(n_jobs),
         "--log-level", log_level,
     ]
     if dry_run:
@@ -172,6 +174,10 @@ def _retrain_over_seeds(
         _set_by_dotted_path(cfg, "data.seed", seed)
         _set_by_dotted_path(cfg, "trainer.experiment_name", experiment_name)
         _set_by_dotted_path(cfg, "trainer.run_name", f"final_seed{seed}")
+        # The final model is the one we keep: save its attention weights + per-epoch logs.
+        # HPO trials leave these OFF for speed (search-space fixed_overrides).
+        _set_by_dotted_path(cfg, "trainer.save_attention_artifacts", True)
+        _set_by_dotted_path(cfg, "trainer.log_per_epoch", True)
         cfg_path = output_dir / "configs" / f"final_seed{seed}.yaml"
         _write_yaml(cfg, cfg_path)
 
@@ -249,6 +255,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--study-name", default="milk_hpo")
     p.add_argument("--storage", default=None, help="Optuna storage URL; default sqlite in trial-root.")
     p.add_argument("--n-trials", type=int, default=40)
+    p.add_argument("--n-jobs", type=int, default=1,
+                   help="Parallel HPO trials (each a training subprocess); on one GPU keep small (2-3).")
     p.add_argument("--trial-root", default=None, help="Where trials + pareto_front.json land.")
     p.add_argument("--output-dir", default=None, help="Where this pipeline writes its artifacts.")
     p.add_argument("--confirmation-seeds", type=int, nargs="+", default=[42],
@@ -296,7 +304,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.skip_hpo:
         rc = _run_hpo(
             search_space_path=runtime_search_path, base_config_path=runtime_base_path,
-            study_name=args.study_name, storage=storage, n_trials=args.n_trials,
+            study_name=args.study_name, storage=storage, n_trials=args.n_trials, n_jobs=args.n_jobs,
             trial_root=trial_root, log_level=args.log_level, env=env,
             package_root=package_root, log_path=output_dir / "optuna.log", dry_run=args.dry_run,
         )

@@ -65,3 +65,9 @@ groups:
 
 fixed_overrides:
   trainer.max_epochs: 60
+  # Speed: HPO trials skip the expensive attention/embedding exports and per-epoch dumps.
+  # The final best-params retrain turns these back on (optuna_final_pipeline._retrain_over_seeds).
+  trainer.save_attention_artifacts: false
+  trainer.log_per_epoch: false
+  trainer.enable_progress_bar: false
+  trainer.enable_model_summary: false
