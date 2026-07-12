@@ -1,28 +1,53 @@
-# Example multi-objective search space for ppl/hpo/optuna_runner.py.
-# Maximizes val_rmsd_top1, minimizes val_rmse (see ppl.hpo.optuna_runner.HpoStudy).
+# Focused multi-objective search space: PRESERVE the architecture, tune only learning
+# rates + the active-prototype bank builder. Sized for ~40-60 trials, so every parameter
+# earns its slot. Objectives: maximize val_rmsd_top1, minimize val_rmse.
 #
-# `groups.<group>.<dotted.config.path>` entries are sampled per trial and
-# applied onto base_config. `fixed_overrides` are applied to every trial
-# unconditionally (in addition to any sampled values).
+# Deliberately NOT tuned (kept fixed at the base config's values):
+#   - architecture: embedder/attention dims & layers, aggregator structure, embed_dim
+#   - batch_size (interacts with the series-balanced batching; left fixed)
+#   - active_threshold (domain constant: pIC50 >= 7 defines "active")
+# Add any of these back only with a much larger trial budget.
 base_config: ppl/config/experiment_configs/run_config.yaml
 
 groups:
-  optim:
-    model.optim.lr:
+  # Learning rates — regression error (val_rmse) and how fast the bank query learns.
+  learning_rates:
+    model.optim.lr:                        # global base LR
       type: float
-      low: 1.0e-4
-      high: 3.0e-3
+      low: 3.0e-5
+      high: 1.0e-3
+      log: true
+    model.optim.active_query_lr:           # LR of the active-prototype query builder itself
+      type: float
+      low: 2.0e-5
+      high: 3.0e-4
       log: true
 
-  batching:
-    data.batch_size:
+  # How strongly / how fast the prototype bank steers attention — the main driver of
+  # val_rmsd_top1. These are the EFFECTIVE curriculum knobs; the model-config
+  # active_prototype_kwargs.query_{max_weight,ramp_epochs} are INERT while the
+  # aggregator-focus curriculum is on, so do NOT tune those.
+  bank_query:
+    trainer.attention_refinement_query_max_weight:
+      type: float
+      low: 0.3
+      high: 1.0
+    trainer.attention_refinement_query_ramp_epochs:
       type: categorical
-      choices: [13, 26, 39]
+      choices: [5, 10, 20]
 
-  model_dim:
-    model.embedder_kwargs.embed_dim:
+  # How the prototype bank is constructed each epoch.
+  bank_builder:
+    model.active_prototype_kwargs.candidate_selection:   # grad x input saliency vs attention-ablation
       type: categorical
-      choices: [128, 256, 384]
+      choices: [gradient, attention_ablation]
+    model.active_prototype_kwargs.top_m_candidates:      # candidate conformers kept per active molecule
+      type: int
+      low: 2
+      high: 6
+    model.active_prototype_kwargs.min_active_prototypes: # bank size required before the query engages
+      type: categorical
+      choices: [8, 12, 16, 20]
 
 fixed_overrides:
   trainer.max_epochs: 60
