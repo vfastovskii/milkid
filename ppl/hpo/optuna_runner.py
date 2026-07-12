@@ -393,7 +393,7 @@ def main(argv: list[str] | None = None) -> int:
     base_config_path = _resolve_path(base_config_path, bases=[package_root, repo_root])
     config_builder = TrialConfigBuilder(base_config_path)
 
-    trial_root = Path(args.trial_root) if args.trial_root else package_root / "ppl" / "optuna_trials" / args.study_name
+    trial_root = Path(args.trial_root) if args.trial_root else package_root / "optuna_trials" / args.study_name
     trial_root.mkdir(parents=True, exist_ok=True)
     base_experiment = str(
         _get_by_dotted_path(config_builder.base_config, "trainer.experiment_name") or "milk"
