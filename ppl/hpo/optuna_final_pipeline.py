@@ -27,7 +27,6 @@ from typing import Any
 
 from ppl.hpo.optuna_runner import (
     _apply_overrides,
-    _get_by_dotted_path,
     _load_yaml,
     _package_root,
     _repo_root,
@@ -328,8 +327,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     selected_cfg = _load_yaml(_selected_trial_config(trial_root, args.study_name, best["number"]))
 
-    # 3. retrain the selected config over the confirmation seeds
-    final_base = f"{_get_by_dotted_path(selected_cfg, 'trainer.experiment_name') or args.study_name}_final"
+    # 3. retrain the selected config over the confirmation seeds. Final models get their
+    # own subdir of the study's pipeline output (absolute, so create_results_directory
+    # resolves straight there — same unified layout as the trials).
+    final_base = str((output_dir / "final").resolve())
     runs = _retrain_over_seeds(
         selected_cfg=selected_cfg, seeds=args.confirmation_seeds, final_base_name=final_base,
         output_dir=output_dir, package_root=package_root, env=env, log_level=args.log_level,

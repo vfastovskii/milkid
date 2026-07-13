@@ -302,18 +302,22 @@ class PipelineRunner:
 class MilkObjective:
     """One Optuna trial: sample -> build config -> run pipeline -> read (rmsd_top1, rmse)."""
 
-    def __init__(self, search_space, config_builder, runner, *, trial_root, base_experiment) -> None:
+    def __init__(self, search_space, config_builder, runner, *, trial_root) -> None:
         self.search_space = search_space
         self.config_builder = config_builder
         self.runner = runner
         self.trial_root = Path(trial_root)
-        self.base_experiment = base_experiment
 
     def __call__(self, trial) -> tuple[float, float]:
         trial_name = _trial_name(trial.study.study_name, trial.number) if hasattr(trial, "study") \
             else f"trial_{trial.number:04d}"
-        trial_dir = self.trial_root / trial_name
-        experiment_name = f"{self.base_experiment}_optuna/{trial_name}"
+        # One directory per trial holds EVERYTHING (config, models, preprocessing, mlflow,
+        # run_metrics) — the same dir the runner drops config.yaml + trial.log into, under
+        # the study's pipeline output. Passing the ABSOLUTE trial dir as experiment_name
+        # makes create_results_directory (and PipelineRunner.run's reader) resolve straight
+        # to it: pathlib drops the "results" prefix when the right operand is absolute.
+        trial_dir = (self.trial_root / trial_name).resolve()
+        experiment_name = str(trial_dir)
         sampled = self.search_space.sample(trial, self.config_builder.base_config)
         config_path = self.config_builder.build(sampled, trial_dir, experiment_name, trial_name)
         LOGGER.info("[HPO] ▶ trial %d training — %s (log: %s)",
@@ -423,11 +427,10 @@ def main(argv: list[str] | None = None) -> int:
     base_config_path = _resolve_path(base_config_path, bases=[package_root, repo_root])
     config_builder = TrialConfigBuilder(base_config_path)
 
-    trial_root = Path(args.trial_root) if args.trial_root else package_root / "optuna_trials" / args.study_name
+    trial_root = (
+        Path(args.trial_root) if args.trial_root else package_root / "optuna_trials" / args.study_name
+    ).resolve()
     trial_root.mkdir(parents=True, exist_ok=True)
-    base_experiment = str(
-        _get_by_dotted_path(config_builder.base_config, "trainer.experiment_name") or "milk"
-    )
 
     if args.dry_run:
         study = optuna.create_study(directions=["maximize", "minimize"],
@@ -436,14 +439,13 @@ def main(argv: list[str] | None = None) -> int:
             trial = study.ask()
             name = _trial_name(args.study_name, trial.number)
             sampled = search_space.sample(trial, config_builder.base_config)
-            config_builder.build(sampled, trial_root / name, f"{base_experiment}_optuna/{name}", name)
+            config_builder.build(sampled, trial_root / name, str((trial_root / name).resolve()), name)
             study.tell(trial, (0.0, 0.0))
         LOGGER.info("[DRY-RUN] wrote %d trial configs under %s", args.n_trials, trial_root)
         return 0
 
     runner = PipelineRunner(package_root, repo_root, log_level=args.log_level, timeout=args.trial_timeout)
-    objective = MilkObjective(search_space, config_builder, runner,
-                              trial_root=trial_root, base_experiment=base_experiment)
+    objective = MilkObjective(search_space, config_builder, runner, trial_root=trial_root)
     HpoStudy(objective, study_name=args.study_name, out_dir=trial_root,
              storage=args.storage).run(args.n_trials, n_jobs=args.n_jobs)
     return 0

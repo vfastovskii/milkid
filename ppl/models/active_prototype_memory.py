@@ -158,7 +158,7 @@ class DynamicActivePrototypeBank(nn.Module):
             Cap on prototypes per series (defaults to ``max_prototypes``).
         """
         if candidates is None or candidates.numel() == 0:
-            return
+            return False
         if candidates.dim() != 2 or candidates.size(-1) != self.dim:
             raise ValueError(
                 "rebuild_from_candidates expects candidates with shape "
@@ -180,7 +180,7 @@ class DynamicActivePrototypeBank(nn.Module):
                     s for s, keep in zip(candidate_series, finite.tolist()) if keep
                 ]
         if cand.size(0) == 0:
-            return
+            return False
 
         series_ids = self._series_ids(candidate_series, cand.size(0))
         cap = (
@@ -192,6 +192,10 @@ class DynamicActivePrototypeBank(nn.Module):
         if series_ids is None:
             groups = {-1: torch.arange(cand.size(0), device=device)}
         else:
+            # Per-epoch (this rebuild) series bookkeeping — reset so counts reflect ONLY
+            # this epoch's candidates (not an unbounded cumulative total), and a series
+            # that stops producing candidates drops out of the "seen" set.
+            self._series_seen_counts = {}
             positions: Dict[int, list] = {}
             for pos, sid in enumerate(series_ids.tolist()):
                 positions.setdefault(int(sid), []).append(pos)
@@ -221,7 +225,7 @@ class DynamicActivePrototypeBank(nn.Module):
         # Transactional: if nothing survives filtering (a sparse epoch), keep the
         # previous bank rather than wiping accumulated memory to empty.
         if not new:
-            return
+            return False
         self.prototypes.zero_()
         self.counts.zero_()
         self.active_mask.fill_(False)
@@ -231,6 +235,7 @@ class DynamicActivePrototypeBank(nn.Module):
             self.counts[slot] = size
             self.active_mask[slot] = True
             self.prototype_series[slot] = sid
+        return True
 
     def _cluster_centroids(self, members: torch.Tensor, max_k: int):
         """Cluster unit vectors into <= max_k count-weighted centroids.
@@ -300,11 +305,15 @@ class DynamicActivePrototypeBank(nn.Module):
         }
 
     def missing_seen_series(self) -> list[str]:
+        # A series counts as "missing" only if it had ENOUGH candidates this epoch to
+        # warrant a prototype (>= min_count_to_keep) yet is absent from the bank. A series
+        # with too few candidates genuinely can't be represented, so it is not a violation
+        # of the all-series-present invariant and must not raise a (perpetual) warning.
         active_sids = set(self.prototype_series[self.active_mask].tolist())
         missing = [
             self._id_to_series.get(int(sid), "unknown")
-            for sid in self._series_seen_counts
-            if int(sid) not in active_sids
+            for sid, count in self._series_seen_counts.items()
+            if int(sid) not in active_sids and count >= self.min_count_to_keep
         ]
         return sorted(missing)
 
@@ -497,7 +506,20 @@ class ActivePrototypeQuery(nn.Module):
         P = P.to(device=z.device, dtype=z.dtype)
         r0_n = F.normalize(r0, p=2, dim=-1)
         P_n = F.normalize(P, p=2, dim=-1)
-        logits = (r0_n @ P_n.T) / self.temperature
+
+        # Match on the BEST-matching conformer, not the bag mean. For a needle-in-a-
+        # haystack active (one bioactive pose among ~50 decoys) the mean r0 barely
+        # resembles the bioactive prototypes, so mean-based matching under-fires exactly
+        # where steering matters most. inst_sim[b, n, k] is the cosine of conformer n to
+        # prototype k; max-pooling over conformers asks "does this bag CONTAIN a
+        # prototype-like pose?" — which is the question the aggregator is trying to answer.
+        z_n = F.normalize(z, p=2, dim=-1)
+        inst_sim = torch.matmul(z_n, P_n.transpose(0, 1))  # [B, N, K]
+        if key_padding_mask is not None:
+            pad = key_padding_mask.bool().unsqueeze(-1)
+            inst_sim = inst_sim.masked_fill(pad, torch.finfo(inst_sim.dtype).min)
+        bag_proto_sim = inst_sim.max(dim=1).values  # [B, K] best conformer per prototype
+        logits = bag_proto_sim / self.temperature
         same_series_available = None
         top_mask = None
         series_filter_used = False
@@ -575,14 +597,15 @@ class ActivePrototypeQuery(nn.Module):
         P_selected = P[topi]
         active_context = (weights_top.unsqueeze(-1) * P_selected).sum(dim=1)
 
-        # Match-gate: scale the injected active context by how well this bag matches
-        # ANY active prototype (max cosine similarity, clamped to [0, 1]). A bag that
-        # resembles no active prototype gets ~zero injection; a strong match gets full
-        # strength. Without this, softmax(top-m) always sums to 1, so every bag —
-        # including inactive/novel ones — was pulled toward the active-conformer
-        # direction with the same magnitude.
-        match_gate = (r0_n @ P_n.T).max(dim=-1).values.clamp(0.0, 1.0)
-        active_context = match_gate.unsqueeze(-1) * active_context
+        # Per-bag relevance gate, from the SAME best-conformer similarity used for
+        # selection (max over prototypes of the max-over-conformers cosine), clamped to
+        # [0, 1]. A bag resembling no active prototype -> ~0; a strong match -> ~1.
+        # It is returned to the aggregator and applied THERE as the sole gate on the
+        # external-query conditioning — it is deliberately NOT multiplied into
+        # active_context here, because that shrank the prototype half of the concat below
+        # out of scale with the unit-norm r0 half (and stacked a redundant third gate on
+        # top of the aggregator gate and the curriculum weight).
+        match_gate = bag_proto_sim.max(dim=-1).values.clamp(0.0, 1.0)
 
         # Concat the unit-normalised r0 (not the raw masked mean) so both halves feed
         # query_proj at a comparable scale; otherwise the ~unit-magnitude prototype

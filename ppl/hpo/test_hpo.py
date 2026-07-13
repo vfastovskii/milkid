@@ -91,16 +91,20 @@ class _StubBuilder:
     def build(self, sampled, trial_dir, exp, run):
         _P(trial_dir).mkdir(parents=True, exist_ok=True); return _P(trial_dir) / "config.yaml"
 class _StubRunner:
-    def __init__(self, results): self.results = results
-    def run(self, config_path, experiment_name, log_path): return self.results
+    def __init__(self, results): self.results = results; self.seen_experiment = None
+    def run(self, config_path, experiment_name, log_path):
+        self.seen_experiment = experiment_name; return self.results
 
 
 def test_milk_objective_returns_tuple(tmp_path):
     results = tmp_path / "res"; results.mkdir()
     (results / "run_metrics.json").write_text(_json.dumps({"val_rmsd_top1": 0.61, "val_rmse": 1.07}))
-    obj = MilkObjective(_StubSS(), _StubBuilder(), _StubRunner(results),
-                        trial_root=tmp_path, base_experiment="exp")
+    runner = _StubRunner(results)
+    obj = MilkObjective(_StubSS(), _StubBuilder(), runner, trial_root=tmp_path)
     assert obj(_FT({})) == (0.61, 1.07)
+    # experiment_name is now the ABSOLUTE per-trial dir under trial_root (unified layout),
+    # so create_results_directory + the reader resolve into one place.
+    assert runner.seen_experiment == str((tmp_path / "trial_0000").resolve())
 
 
 from ppl.hpo.optuna_runner import HpoStudy

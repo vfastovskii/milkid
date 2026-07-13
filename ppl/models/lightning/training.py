@@ -401,6 +401,20 @@ class TrainingMethods(_CurriculumMixin, nn.Module):
             missing_series_txt,
         )
 
+        # Per-epoch, human-visible bank composition BY SERIES (the invariant is that every
+        # seen series stays represented in the bank). Only once the bank is collecting.
+        if num_active > 0:
+            LOGGER.info(
+                "Active-prototype bank · epoch %s: %d/%d prototypes across %d series [%s]",
+                epoch, num_active, max_prototypes, len(series_hist), series_hist_txt,
+            )
+            if missing_series:
+                LOGGER.warning(
+                    "Active-prototype bank · epoch %s: %d seen series MISSING from the bank "
+                    "(expected every series present): %s",
+                    epoch, len(missing_series), missing_series_txt,
+                )
+
     def forward(self, x):
         """Forward pass through the model.
 

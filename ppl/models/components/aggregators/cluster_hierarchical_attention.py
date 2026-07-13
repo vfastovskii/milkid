@@ -320,10 +320,13 @@ class ClusterHierarchicalAttentionAggregator(nn.Module):
             nn.LayerNorm(input_dim) if use_layer_norm else nn.Identity()
         )
         self.external_query_proj = nn.Linear(input_dim, input_dim)
-        gate = min(max(float(external_query_gate_init), 1e-4), 1.0 - 1e-4)
-        self.external_query_gate_logit = nn.Parameter(
-            torch.tensor(math.log(gate / (1.0 - gate)))
-        )
+        # external_query_gate_init now sets the INITIAL magnitude of the external-query
+        # conditioning (applied to the proj weights in _reset_parameters), not a separate
+        # learned global sigmoid gate. Per-bag gating is supplied by the caller each
+        # forward via `external_query_gate` (the query builder's match_gate), so a single
+        # learnable projection + a per-bag data gate replace the old proj × global-gate
+        # stack. Kept as a constructor arg for config back-compat.
+        self._external_query_init_scale = min(max(float(external_query_gate_init), 1e-4), 1.0)
         self.output_ln = nn.LayerNorm(input_dim) if use_layer_norm else nn.Identity()
 
         self._reset_parameters()
@@ -356,6 +359,14 @@ class ClusterHierarchicalAttentionAggregator(nn.Module):
             nn.init.xavier_uniform_(linear.weight)
             nn.init.zeros_(linear.bias)
         nn.init.xavier_uniform_(self.external_query_proj.weight)
+        # Sets the INITIAL magnitude of the prototype conditioning. Note the learned CLS
+        # query inits tiny (std 0.02, ‖·‖≈0.32), so scale=0.15 already makes ‖condition‖≈2.4
+        # — the prototype term DOMINATES the learned query ~7.5× at init (not a mild
+        # refinement). That is deliberate: it guarantees the active path differs from the
+        # base path so blending it in (curriculum weight w) actually steers. The proj then
+        # trains, so this is only the starting scale; w ramps 0->max and match_gate (per-bag)
+        # keep the early influence controlled.
+        self.external_query_proj.weight.data.mul_(self._external_query_init_scale)
         nn.init.zeros_(self.external_query_proj.bias)
 
     @property
@@ -374,14 +385,33 @@ class ClusterHierarchicalAttentionAggregator(nn.Module):
             return torch.sigmoid(self.refine_mix_logit).to(device=device, dtype=dtype)
         return self.refine_mix_value.to(device=device, dtype=dtype)
 
-    def _external_query_gate(
+    def _as_bag_gate(
         self,
-        device: torch.device,
-        dtype: torch.dtype,
+        external_query_gate: Optional[torch.Tensor],
+        reference: torch.Tensor,
     ) -> torch.Tensor:
-        return torch.sigmoid(self.external_query_gate_logit).to(
-            device=device,
-            dtype=dtype,
+        """Per-bag gate on the external-query conditioning, broadcast to [B, 1, 1].
+
+        This replaces the old global learned sigmoid gate: the caller passes the query
+        builder's match_gate (max conformer-prototype cosine, per bag), so a bag that
+        resembles no active prototype gets ~zero conditioning -> its active path equals
+        its base path -> the downstream blend leaves it untouched. Defaults to 1.0 when
+        no gate is supplied (external queries with no relevance signal).
+        """
+        if external_query_gate is None:
+            return torch.ones((), device=reference.device, dtype=reference.dtype)
+        gate = external_query_gate.to(
+            device=reference.device,
+            dtype=reference.dtype,
+        ).clamp(0.0, 1.0)
+        if gate.dim() == 0:
+            return gate
+        if gate.dim() == 1:  # [B] -> [B, 1, 1]
+            return gate.view(-1, 1, 1)
+        if gate.dim() == 2:  # [B, 1] -> [B, 1, 1]
+            return gate.unsqueeze(-1)
+        raise ValueError(
+            f"external_query_gate must be scalar, [B] or [B, 1], got {tuple(gate.shape)}"
         )
 
     def _as_query_weight(
@@ -418,6 +448,7 @@ class ClusterHierarchicalAttentionAggregator(nn.Module):
         learned_queries: torch.Tensor,
         external_queries: Optional[torch.Tensor],
         external_query_weight: Optional[Union[float, torch.Tensor]],
+        external_query_gate: Optional[torch.Tensor] = None,
     ) -> tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor, bool]:
         weight = self._as_query_weight(
             external_query_weight,
@@ -445,10 +476,7 @@ class ClusterHierarchicalAttentionAggregator(nn.Module):
 
         queries = self._match_query_count(queries)
         condition = self.external_query_proj(self.external_query_norm(queries))
-        gate = self._external_query_gate(
-            device=learned_queries.device,
-            dtype=learned_queries.dtype,
-        )
+        gate = self._as_bag_gate(external_query_gate, learned_queries)
         conditioned = learned_queries + gate * condition
         return learned_queries, conditioned, weight, True
 
@@ -800,6 +828,7 @@ class ClusterHierarchicalAttentionAggregator(nn.Module):
         cluster_ids: Optional[torch.Tensor] = None,
         external_queries: Optional[torch.Tensor] = None,
         external_query_weight: Optional[Union[float, torch.Tensor]] = None,
+        external_query_gate: Optional[torch.Tensor] = None,
         return_entropy: bool = True,
         return_attn: bool = False,
     ):
@@ -851,6 +880,7 @@ class ClusterHierarchicalAttentionAggregator(nn.Module):
                 learned_queries,
                 external_queries,
                 external_query_weight,
+                external_query_gate,
             )
         )
 
@@ -979,10 +1009,11 @@ class ClusterHierarchicalAttentionAggregator(nn.Module):
             "reg_loss": cluster_loss,
             "external_queries_used": external_queries_used,
             "external_query_weight": query_weight.detach(),
-            "external_query_gate": self._external_query_gate(
-                device=h_seq.device,
-                dtype=h_seq.dtype,
-            ).detach(),
+            "external_query_gate": (
+                external_query_gate.detach()
+                if isinstance(external_query_gate, torch.Tensor)
+                else torch.ones((), device=h_seq.device, dtype=h_seq.dtype)
+            ),
         }
         if active_path is not None:
             extras.update(

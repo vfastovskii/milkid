@@ -1,20 +1,24 @@
-# Focused multi-objective search space: PRESERVE the architecture, tune the per-component
-# learning rates + the active-prototype bank builder. Objectives: maximize val_rmsd_top1,
-# minimize val_rmse. NOTE: 9 params is wide for a pure 40-60-trial NSGA-II run (~1 generation,
-# closer to random search) — bump the trial budget toward ~100+ for real Pareto evolution.
+# Focused multi-objective search space. Objectives: maximize val_rmsd_top1, minimize val_rmse.
 #
-# Deliberately NOT tuned (kept fixed at the base config's values):
-#   - architecture: embedder/attention dims & layers, aggregator structure, embed_dim
-#   - batch_size (interacts with the series-balanced batching; left fixed)
-#   - active_threshold (domain constant: pIC50 >= 7 defines "active")
-# Add any of these back only with a much larger trial budget.
+# INVARIANT: architecture AND training are IDENTICAL from trial to trial. HPO varies ONLY
+# (a) per-component learning rates and (b) a few active-prototype BANK-FORMATION knobs.
+# Everything else — model dims/layers/aggregator structure, embed_dim, batch_size,
+# max_epochs, the aggregator-focus curriculum (attention_refinement_*: query max_weight,
+# ramp, patience, lr_factor), warmup_epochs, candidate_selection (fixed = blended),
+# blend weights, active_threshold — is held fixed at the base config's values, so any
+# trial-to-trial difference in val_rmsd_top1 / val_rmse is attributable to LR + bank
+# formation alone.
+#
+# Deliberately NOT tuned (would change architecture or training across trials):
+#   - trainer.attention_refinement_query_{max_weight,ramp_epochs}  -> curriculum = TRAINING
+#   - model.aggregator_kwargs.external_query_gate_init             -> proj init = ARCHITECTURE
+#   - model.active_prototype_kwargs.candidate_selection           -> fixed at 'blended'
 base_config: ppl/config/experiment_configs/run_config.yaml
 
 groups:
-  # Per-component learning rates. NOTE: the global model.optim.lr is INERT here — every
-  # component has an explicit absolute LR in run_config, so component_lr() (ppl/models/
-  # lightning/optimization.py) returns those and never falls back to base_lr. Tune the
-  # actual per-component LRs instead. (self_attention_lr left fixed.)
+  # (a) Per-component learning rates. The global model.optim.lr is INERT — every component
+  # has an explicit absolute LR in run_config, so component_lr() returns those and never
+  # falls back to base_lr. Tune the actual per-component LRs. (self_attention_lr left fixed.)
   learning_rates:
     model.optim.embedder_lr:               # base ~2.5e-5
       type: float
@@ -37,31 +41,17 @@ groups:
       high: 3.0e-4
       log: true
 
-  # How strongly / how fast the prototype bank steers attention — the main driver of
-  # val_rmsd_top1. These are the EFFECTIVE curriculum knobs; the model-config
-  # active_prototype_kwargs.query_{max_weight,ramp_epochs} are INERT while the
-  # aggregator-focus curriculum is on, so do NOT tune those.
-  bank_query:
-    trainer.attention_refinement_query_max_weight:
-      type: float
-      low: 0.3
-      high: 1.0
-    trainer.attention_refinement_query_ramp_epochs:
-      type: categorical
-      choices: [5, 10, 20]
-
-  # How the prototype bank is constructed each epoch.
+  # (b) Active-prototype BANK-FORMATION knobs (how the per-epoch bank is built; the
+  # selection mechanism itself, candidate_selection=blended, is FIXED). These do not touch
+  # architecture or the training curriculum.
   bank_builder:
-    model.active_prototype_kwargs.candidate_selection:   # grad x input saliency vs attention-ablation
-      type: categorical
-      choices: [gradient, attention_ablation]
-    model.active_prototype_kwargs.top_m_candidates:      # candidate conformers kept per active molecule
-      type: int
-      low: 2
-      high: 6
-    model.active_prototype_kwargs.min_active_prototypes: # bank size required before the query engages
-      type: categorical
-      choices: [8, 12, 16, 20]
+    model.active_prototype_kwargs.top_m_candidates:       # candidate conformers kept per active molecule.
+      type: int                                           # Capped at 4 so it stays BELOW the fixed
+      low: 2                                              # ablation_candidate_pool=5 (else re-rank inert).
+      high: 4
+    # ablation_candidate_pool is FIXED at 5 (run_config) — chosen for speed (5 leave-one-out
+    # forwards/molecule). min_active_prototypes is FIXED at 16 (gates query engagement, part of
+    # the training schedule that stays constant across trials). Neither is swept.
 
 fixed_overrides:
   trainer.max_epochs: 60

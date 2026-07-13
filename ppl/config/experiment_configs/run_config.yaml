@@ -101,7 +101,7 @@ model:
 
   active_prototype_kwargs:
     enabled: true
-    warmup_epochs: 6 # paper 6
+    warmup_epochs: 5 # bank starts collecting at epoch 5, runs to end of training
     query_start_epoch: 10 #paper10
     # NOTE: query_ramp_epochs / query_max_weight below are INERT while the
     # aggregator-focus curriculum owns the query (attention_refinement_enabled: true).
@@ -111,12 +111,25 @@ model:
     query_max_weight: 0.5 # paper0.5
     min_active_prototypes: 16
     active_threshold: 7.0
-    top_m_candidates: 3
-    candidate_selection: gradient  # per-conformer grad×input saliency + attention, over ALL conformers
-    ablation_candidate_pool: 3 #paper 8      # (only used by candidate_selection: attention_ablation)
+    top_m_candidates: 2   # HPO-optimized (best trial); pool(5) > top_m so re-ranking stays live
+    candidate_selection: attention_ablation  # leave-one-out ablation impact + attention (faster than
+                                             # blended: no per-molecule gradient backward). A+B below apply.
+    # blend_* weights are INERT unless candidate_selection: blended.
+    blend_attention_weight: 0.333
+    blend_gradient_weight: 0.333
+    blend_ablation_weight: 0.334
+    ablation_candidate_pool: 5      # pool re-ranked by ablation (5 leave-one-out fwds/molecule);
+                                    # MUST exceed top_m_candidates or the re-ranking is inert.
     ablation_attention_weight: 0.5  # blend: attention half
     ablation_impact_weight: 0.5     # blend: gradient (or ablation) impact half
     ablation_positive_only: true    # keep only prediction-inflating (activity-driving) conformers
+    # Label-aware knobs. candidate_selection: blended is ALWAYS label-aware by design
+    # (A correct-only + B error-aware, regardless of the two flags below). The flags
+    # gate A/B for candidate_selection: attention_ablation only. ablation_correct_tol is
+    # used by BOTH (it sets how strict "correct" is for the A gate).
+    ablation_require_correct: true  # A for attention_ablation (blended always applies A)
+    ablation_correct_tol: 1.0       #    |pred - y| <= 1.0 pIC50 counts as "correct" (both modes)
+    ablation_error_aware: true      # B for attention_ablation (blended always applies B)
     candidate_alpha_key: alpha
     max_prototypes: 64
     max_prototypes_per_series: 4  # per-series cluster cap in the per-epoch rebuild (4×13 series ≤ 64)
@@ -129,11 +142,12 @@ model:
 
   optim:
     lr: 0.0001
-    embedder_lr: 0.000025479848747509328
-    self_attention_lr: 0.00008037712553528748
-    aggregator_lr: 0.00013363992606528198
-    predictor_lr: 0.000009548040352097481
-    active_query_lr: 0.00007017884066318825
+    # Per-component LRs — HPO-optimized (best trial milk_hpo_mac_20260712_182719_trial_0019).
+    embedder_lr: 3.1174220030046304e-05
+    self_attention_lr: 8.037712553528748e-05   # not tuned by HPO (left fixed)
+    aggregator_lr: 0.00013056347746385837
+    predictor_lr: 1.343427964743022e-05
+    active_query_lr: 2.1425215972830185e-05
     weight_decay: 0.002955782682076399
     scheduler: none  # the aggregator-focus curriculum owns LR (loss-linked); no plain plateau scheduler
     lr_patience: 15 #paper 30  # unused while scheduler=none
@@ -152,7 +166,7 @@ trainer:
   device: auto   # auto -> CUDA if available, else MPS, else CPU (use "cpu" for bitwise-reproducible runs)
   precision: "32-true"
   log_every_n_steps: 10  # Set to a lower value since we only have 37 training batches
-  experiment_name: bace809_jul8_run18 #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_double_scale_fix
+  experiment_name: bace809_jul8_run19 #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_double_scale_fix
   run_name: null
   tracking_uri: null
   log_per_epoch: false
@@ -175,7 +189,7 @@ trainer:
   attention_refinement_patience: 3
   attention_refinement_min_delta: 0.005
   attention_refinement_lr_factor: 0.01
-  attention_refinement_query_ramp_epochs: 10   # EFFECTIVE ramp when curriculum on (overrides active_prototype_kwargs.query_ramp_epochs)
+  attention_refinement_query_ramp_epochs: 5    # EFFECTIVE ramp when curriculum on (overrides active_prototype_kwargs.query_ramp_epochs)
   attention_refinement_query_max_weight: 0.8    # EFFECTIVE max query weight (overrides active_prototype_kwargs.query_max_weight)
   attention_refinement_min_focus_epochs: 25  # run the active-prototype phase ≥20 epochs before the plateau-stop
   enable_progress_bar: true

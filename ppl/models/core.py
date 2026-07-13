@@ -95,6 +95,7 @@ class MILCore(ActivePrototypeMixin, nn.Module):
         cluster_ids: Optional[torch.Tensor] = None,
         external_queries: Optional[torch.Tensor] = None,
         external_query_weight: Optional[float] = None,
+        external_query_gate: Optional[torch.Tensor] = None,
         return_attn: bool = False,
     ) -> Tuple[torch.Tensor, Dict[str, Any]]:
         kwargs: Dict[str, Any] = {}
@@ -122,6 +123,12 @@ class MILCore(ActivePrototypeMixin, nn.Module):
             "external_query_weight",
         ):
             kwargs["external_query_weight"] = external_query_weight
+
+        if external_query_gate is not None and cls._forward_accepts(
+            aggregator,
+            "external_query_gate",
+        ):
+            kwargs["external_query_gate"] = external_query_gate
 
         return aggregator(h, **kwargs)
 
@@ -240,6 +247,7 @@ class MILCore(ActivePrototypeMixin, nn.Module):
                     cluster_ids=cluster_ids,
                     external_queries=active_query,
                     external_query_weight=active_query_weight,
+                    external_query_gate=proto_info.get("proto_match_gate"),
                     return_attn=True,
                 )
                 agg_info.update(proto_info)

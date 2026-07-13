@@ -133,6 +133,11 @@ class PipelineConfigManager:
             src = Path(src)
             if src.exists():
                 dst = results_dir / "config.yaml"
+                # Under the unified HPO layout the results dir IS the dir the -c config
+                # was loaded from, so src == dst; the config is already in place — skip
+                # the self-copy (shutil raises SameFileError otherwise).
+                if dst.resolve() == src.resolve():
+                    return
                 shutil.copyfile(src, dst)
                 LOGGER.info("Saved run config to %s", dst)
         except Exception as e:

@@ -78,10 +78,12 @@ class ActivePrototypeMixin:
             "attention",
             "attention_ablation",
             "gradient",
+            "blended",
         }:
             raise ValueError(
-                "candidate_selection must be 'attention', 'attention_ablation', or "
-                f"'gradient', got {self.active_prototype_candidate_selection!r}"
+                "candidate_selection must be 'attention', 'attention_ablation', "
+                "'gradient', or 'blended', got "
+                f"{self.active_prototype_candidate_selection!r}"
             )
         self.active_prototype_ablation_candidate_pool = int(
             cfg.get(
@@ -98,6 +100,51 @@ class ActivePrototypeMixin:
         self.active_prototype_ablation_positive_only = bool(
             cfg.get("ablation_positive_only", True)
         )
+        # A — gate candidates to actives the model predicts CORRECTLY (|pred - y| <= tol),
+        # so the bank is built from the same "active & correct" population the KID metric is
+        # scored on (instead of also learning from mispredicted actives).
+        self.active_prototype_ablation_require_correct = bool(
+            cfg.get("ablation_require_correct", False)
+        )
+        self.active_prototype_ablation_correct_tol = float(
+            cfg.get("ablation_correct_tol", 1.0)  # pIC50 units
+        )
+        # B — score by ERROR REDUCTION, not raw prediction contribution: a conformer is a
+        # good bioactive candidate if its PRESENCE makes the prediction more accurate
+        # (removing it raises |pred - y|). Without this, a conformer that merely inflates an
+        # already-too-high prediction on a true active scores high and is wrongly kept.
+        self.active_prototype_ablation_error_aware = bool(
+            cfg.get("ablation_error_aware", False)
+        )
+        # candidate_selection: blended — fuse attention + gradient×input saliency +
+        # leave-one-out ablation impact into ONE per-conformer score over the top-attention
+        # pool. Weights default to an equal 1/3 split; the ablation term carries A+B.
+        self.active_prototype_blend_attention_weight = float(
+            cfg.get("blend_attention_weight", 1.0 / 3.0)
+        )
+        self.active_prototype_blend_gradient_weight = float(
+            cfg.get("blend_gradient_weight", 1.0 / 3.0)
+        )
+        self.active_prototype_blend_ablation_weight = float(
+            cfg.get("blend_ablation_weight", 1.0 / 3.0)
+        )
+        # The ablation/blended selectors re-rank a top-attention POOL and keep top_m of it.
+        # If the pool doesn't exceed top_m, topk keeps the whole pool → the grad/ablation
+        # re-ranking is inert and the (expensive) impact passes are wasted.
+        if (
+            self.active_prototype_candidate_selection in {"attention_ablation", "blended"}
+            and self.active_prototype_ablation_candidate_pool
+            <= self.active_prototype_top_m_candidates
+        ):
+            LOGGER.warning(
+                "candidate_selection=%s but ablation_candidate_pool (%d) <= "
+                "top_m_candidates (%d): the pool equals what is kept, so the "
+                "ablation/blend re-ranking is INERT (selection = top-attention). "
+                "Set ablation_candidate_pool > top_m_candidates.",
+                self.active_prototype_candidate_selection,
+                self.active_prototype_ablation_candidate_pool,
+                self.active_prototype_top_m_candidates,
+            )
         self.active_prototype_candidate_alpha_key = str(
             cfg.get("candidate_alpha_key", "alpha")
         )
@@ -309,12 +356,28 @@ class ActivePrototypeMixin:
         run_log = logging.getLogger("milk")
         if warmup_done and not getattr(self, "_active_proto_warmup_announced", False):
             self._active_proto_warmup_announced = True
-            run_log.info(
-                "Active-prototype memory: warmup complete at epoch %s — bank now "
-                "collecting prototypes (queries begin at epoch %s).",
-                epoch,
-                self.active_prototype_query_start_epoch,
-            )
+            # Under the aggregator-focus curriculum the query does NOT engage at a fixed
+            # epoch — it triggers on a validation plateau (once the bank is ready), so
+            # query_start_epoch is inert. Only report a fixed start epoch when the
+            # curriculum is off (the LightningModule sets force_disabled/forced_weight).
+            curriculum_driven = bool(
+                getattr(self, "active_query_force_disabled", False)
+            ) or getattr(self, "active_query_forced_weight", None) is not None
+            if curriculum_driven:
+                run_log.info(
+                    "Active-prototype memory: warmup complete at epoch %s — bank now "
+                    "collecting prototypes each epoch; the query engages when the "
+                    "aggregator-focus curriculum triggers on a validation plateau "
+                    "(not a fixed epoch), then ramps up.",
+                    epoch,
+                )
+            else:
+                run_log.info(
+                    "Active-prototype memory: warmup complete at epoch %s — bank now "
+                    "collecting prototypes (queries begin at epoch %s).",
+                    epoch,
+                    self.active_prototype_query_start_epoch,
+                )
         if use_active_query_now and not getattr(self, "_active_proto_query_announced", False):
             self._active_proto_query_announced = True
             run_log.info(
@@ -597,6 +660,15 @@ class ActivePrototypeMixin:
                 )
                 full_pred = predictor(full_repr).flatten()[0]
 
+                # A: skip actives the model gets wrong — their per-conformer impacts are
+                # driven by the prediction ERROR, not by a real bioactivity signal.
+                y_b = y[b]
+                if (
+                    self.active_prototype_ablation_require_correct
+                    and (full_pred - y_b).abs() > self.active_prototype_ablation_correct_tol
+                ):
+                    continue
+
                 impacts = []
                 for idx_t in pool_idx:
                     if valid_idx.numel() <= 1:
@@ -612,7 +684,14 @@ class ActivePrototypeMixin:
                         return_attn=False,
                     )
                     ablated_pred = predictor(ablated_repr).flatten()[0]
-                    delta = full_pred - ablated_pred
+                    if self.active_prototype_ablation_error_aware:
+                        # B: error increase from removing this conformer. >0 means it was
+                        # pulling the prediction TOWARD the true value (a genuine bioactivity
+                        # driver); <0 means it was pushing the prediction PAST truth (an
+                        # over-prediction driver) and should not be kept.
+                        delta = (ablated_pred - y_b).abs() - (full_pred - y_b).abs()
+                    else:
+                        delta = full_pred - ablated_pred
                     if self.active_prototype_ablation_positive_only:
                         impact = delta.clamp_min(0.0)
                     else:
@@ -640,6 +719,183 @@ class ActivePrototypeMixin:
                 ).indices
                 keep_idx = pool_idx[keep_local]
                 selected.append(z[b, keep_idx])
+                if selected_series is not None:
+                    selected_series.extend(
+                        [str(series_labels[b])] * int(keep_idx.numel())
+                    )
+        finally:
+            aggregator.train(was_agg_training)
+            predictor.train(was_pred_training)
+
+        if not selected:
+            return z.new_zeros((0, D)), selected_series
+        return torch.cat(selected, dim=0), selected_series
+
+    def _select_blended_active_candidates(
+        self,
+        z: torch.Tensor,
+        agg_info: Dict[str, Any],
+        labels: torch.Tensor,
+        key_padding_mask: Optional[torch.Tensor],
+        cluster_ids: Optional[torch.Tensor],
+        series_labels: Optional[list[str]],
+        aggregator: nn.Module,
+        predictor: nn.Module,
+    ) -> tuple[torch.Tensor, Optional[list[str]]]:
+        """Select active candidates by a single blended per-conformer score.
+
+        Both prior selectors on ONE shared pool: for each active bag, take the
+        top-attention conformer pool, then score each pooled conformer by
+
+            w_attn·norm(alpha) + w_grad·norm(grad×input) + w_abl·norm(ablation_impact)
+
+        and keep the top-m. Gradient×input saliency (one backward) and leave-one-out
+        ablation impact (pool-size forwards) are computed on the feedback-free BASE
+        path (no external_queries), same anti-self-selection guard as the standalone
+        variants. This mode is label-aware BY DESIGN (not via the ablation_* flags): it
+        ALWAYS restricts the bank to correctly-predicted actives (A — |pred - y| <=
+        ablation_correct_tol) and ALWAYS uses error-aware ablation impact (B — reward a
+        conformer only if its presence pulls the prediction toward y).
+        Cost: 1 forward+backward + pool forwards per active bag — the heaviest mode.
+        """
+        alpha = self._active_prototype_alpha(agg_info)
+        if alpha is None:
+            return z.new_zeros((0, z.size(-1))), None
+        if alpha.dim() == 1:
+            alpha = alpha.unsqueeze(0)
+        if alpha.dim() != 2:
+            raise ValueError(
+                f"Active prototype alpha must have shape [B, N], got {alpha.shape}"
+            )
+
+        B, N, D = z.shape
+        y = labels.flatten().to(device=z.device)
+        active_rows = y >= self.active_prototype_active_threshold
+        if active_rows.sum() == 0:
+            return z.new_zeros((0, D)), None
+
+        if key_padding_mask is None:
+            valid_mask = torch.ones(B, N, device=z.device, dtype=torch.bool)
+        else:
+            valid_mask = ~key_padding_mask.to(device=z.device).bool()
+
+        w_attn = self.active_prototype_blend_attention_weight
+        w_grad = self.active_prototype_blend_gradient_weight
+        w_abl = self.active_prototype_blend_ablation_weight
+        pool_limit = max(
+            self.active_prototype_top_m_candidates,
+            self.active_prototype_ablation_candidate_pool,
+        )
+
+        selected: list[torch.Tensor] = []
+        selected_series: Optional[list[str]] = [] if series_labels is not None else None
+
+        was_agg_training = aggregator.training
+        was_pred_training = predictor.training
+        aggregator.eval()
+        predictor.eval()
+        try:
+            for b_t in torch.nonzero(active_rows, as_tuple=False).flatten():
+                b = int(b_t.item())
+                valid_idx = torch.nonzero(valid_mask[b], as_tuple=False).flatten()
+                if valid_idx.numel() == 0:
+                    continue
+
+                mask_full = (
+                    torch.zeros(1, N, dtype=torch.bool, device=z.device)
+                    if key_padding_mask is None
+                    else key_padding_mask[b : b + 1].to(device=z.device).bool()
+                )
+                cluster_b = None if cluster_ids is None else cluster_ids[b : b + 1]
+
+                # Shared pool: the top-attention conformers (bounds ablation cost).
+                alpha_valid = alpha[b, valid_idx].to(device=z.device)
+                pool_k = min(int(pool_limit), int(valid_idx.numel()))
+                if pool_k <= 0:
+                    continue
+                if pool_k < valid_idx.numel():
+                    pool_local = torch.topk(
+                        alpha_valid, k=pool_k, largest=True, sorted=False
+                    ).indices
+                else:
+                    pool_local = torch.arange(valid_idx.numel(), device=z.device)
+                pool_idx = valid_idx[pool_local]
+                alpha_pool = alpha_valid[pool_local]
+
+                # full prediction (for A gate + B) and d(pred)/d(z_i), one backward.
+                z_b = z[b : b + 1].detach().clone().requires_grad_(True)
+                with torch.enable_grad():
+                    repr_b, _ = self._call_aggregator(
+                        aggregator,
+                        z_b,
+                        key_padding_mask=mask_full,
+                        cluster_ids=cluster_b,
+                        return_attn=False,
+                    )
+                    full_pred = predictor(repr_b).flatten()[0]
+                    grad_b = torch.autograd.grad(full_pred, z_b)[0][0]  # [N, D]
+                full_pred = full_pred.detach()
+
+                # A (ALWAYS on for blended, by design): only build the bank from actives
+                # the model predicts correctly (|pred - y| <= ablation_correct_tol) — the
+                # same "active & correct" population KID is scored on. Unlike attention_ablation
+                # this is NOT gated by ablation_require_correct; blended is label-aware by
+                # definition. ablation_correct_tol still sets how strict "correct" is.
+                y_b = y[b]
+                if (full_pred - y_b).abs() > self.active_prototype_ablation_correct_tol:
+                    continue
+
+                # gradient×input attribution over the pool.
+                contrib = (grad_b * z_b.detach()[0]).sum(dim=-1)  # [N]
+                grad_pool = contrib[pool_idx]
+
+                # leave-one-out ablation impact over the pool (B: error-aware).
+                impacts: list[torch.Tensor] = []
+                for idx_t in pool_idx:
+                    if valid_idx.numel() <= 1:
+                        impacts.append(z.new_zeros(()))
+                        continue
+                    mask_b = mask_full.clone()
+                    mask_b[0, int(idx_t.item())] = True
+                    ablated_repr, _ = self._call_aggregator(
+                        aggregator,
+                        z[b : b + 1],
+                        key_padding_mask=mask_b,
+                        cluster_ids=cluster_b,
+                        return_attn=False,
+                    )
+                    ablated_pred = predictor(ablated_repr).flatten()[0]
+                    # B (ALWAYS on for blended): error-aware impact — reward a conformer only
+                    # if its PRESENCE pulls the prediction toward the true value (removing it
+                    # raises |pred - y|). Not gated by ablation_error_aware.
+                    impacts.append((ablated_pred - y_b).abs() - (full_pred - y_b).abs())
+                abl_pool = torch.stack(impacts)
+
+                # Same keep/reject convention as the standalone selectors.
+                if self.active_prototype_ablation_positive_only:
+                    grad_pool = grad_pool.clamp_min(0.0)
+                    abl_pool = abl_pool.clamp_min(0.0)
+                else:
+                    grad_pool = grad_pool.abs()
+                    abl_pool = abl_pool.abs()
+
+                alpha_norm = self._normalise_positive_scores(alpha_pool)
+                grad_norm = self._normalise_positive_scores(grad_pool)
+                abl_norm = self._normalise_positive_scores(abl_pool)
+                score = w_attn * alpha_norm + w_grad * grad_norm + w_abl * abl_norm
+                if float(score.sum().item()) <= 0.0:
+                    score = alpha_norm
+                if float(score.sum().item()) <= 0.0:
+                    score = torch.ones_like(score) / max(1, score.numel())
+
+                keep_k = min(
+                    self.active_prototype_top_m_candidates, int(pool_idx.numel())
+                )
+                keep_local = torch.topk(
+                    score, k=keep_k, largest=True, sorted=False
+                ).indices
+                keep_idx = pool_idx[keep_local]
+                selected.append(z[b, keep_idx].detach())
                 if selected_series is not None:
                     selected_series.extend(
                         [str(series_labels[b])] * int(keep_idx.numel())
@@ -716,6 +972,23 @@ class ActivePrototypeMixin:
                         predictor=predictor,
                     )
                 )
+            elif (
+                sel == "blended"
+                and aggregator is not None
+                and predictor is not None
+            ):
+                candidates, candidate_series = (
+                    self._select_blended_active_candidates(
+                        z=z.detach(),
+                        agg_info=agg_info,
+                        labels=labels.detach(),
+                        key_padding_mask=key_padding_mask,
+                        cluster_ids=cluster_ids,
+                        series_labels=series_labels,
+                        aggregator=aggregator,
+                        predictor=predictor,
+                    )
+                )
             else:
                 candidates, candidate_series = select_active_conformer_candidates(
                     z=z.detach(),
@@ -761,12 +1034,14 @@ class ActivePrototypeMixin:
         candidates = torch.cat(buf, dim=0)
         series = getattr(self, "_active_candidate_series", None) or []
         candidate_series = series if len(series) == int(candidates.size(0)) else None
-        bank.rebuild_from_candidates(
+        rebuilt = bank.rebuild_from_candidates(
             candidates,
             candidate_series=candidate_series,
             max_per_series=self.active_prototype_max_per_series,
         )
-        if hasattr(self, "active_prototype_num_updates"):
+        # Count only rebuilds that actually mutated the bank (rebuild_from_candidates
+        # early-returns without touching it on an all-filtered/sparse epoch).
+        if rebuilt and hasattr(self, "active_prototype_num_updates"):
             self.active_prototype_num_updates.add_(1)
         LOGGER.debug(
             "[ACTIVE_PROTO] epoch rebuild from %d candidates -> %d active prototypes",
