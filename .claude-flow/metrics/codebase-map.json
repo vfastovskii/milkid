@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-07-13T14:23:54.906Z",
+  "projectRoot": "/Users/vfastovskii/Desktop/milkid",
+  "structure": {
+    "hasPackageJson": false,
+    "hasTsConfig": false,
+    "hasClaudeConfig": true,
+    "hasClaudeFlow": true
+  },
+  "scannedAt": 1783952634906
+}

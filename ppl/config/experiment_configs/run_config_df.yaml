@@ -166,7 +166,7 @@ trainer:
   device: auto   # auto -> CUDA if available, else MPS, else CPU (use "cpu" for bitwise-reproducible runs)
   precision: "32-true"
   log_every_n_steps: 10  # Set to a lower value since we only have 37 training batches
-  experiment_name: bace809_jul8_run20 #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_double_scale_fix
+  experiment_name: bace809_jul8_run19 #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_double_scale_fix
   run_name: null
   tracking_uri: null
   log_per_epoch: false
@@ -190,8 +190,8 @@ trainer:
   attention_refinement_min_delta: 0.005
   attention_refinement_lr_factor: 0.01
   attention_refinement_query_ramp_epochs: 5    # EFFECTIVE ramp when curriculum on (overrides active_prototype_kwargs.query_ramp_epochs)
-  attention_refinement_query_max_weight: 1.0 #paper 0.8    # EFFECTIVE max query weight (overrides active_prototype_kwargs.query_max_weight)
-  attention_refinement_min_focus_epochs: 35  #paper 25 # run the active-prototype phase ≥20 epochs before the plateau-stop
+  attention_refinement_query_max_weight: 0.8    # EFFECTIVE max query weight (overrides active_prototype_kwargs.query_max_weight)
+  attention_refinement_min_focus_epochs: 25  # run the active-prototype phase ≥20 epochs before the plateau-stop
   enable_progress_bar: true
   enable_model_summary: true
   validation_instance_importance_enabled: false
