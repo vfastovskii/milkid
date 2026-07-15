@@ -21,6 +21,14 @@ rad.json
 *.flf
 #Test results file
 TestResults.xml
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+
 ### Python ###
 __pycache__/
 *.py[cod]
@@ -32,3 +40,4 @@ results/
 .idea
 
 docs/
+.claude-flow/
