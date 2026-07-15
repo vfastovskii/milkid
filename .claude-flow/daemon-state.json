@@ -1,15 +1,15 @@
 {
   "running": true,
-  "startedAt": "2026-07-14T10:32:39.565Z",
+  "startedAt": "2026-07-15T15:17:53.496Z",
   "workers": {
     "map": {
-      "runCount": 1,
-      "successCount": 1,
+      "runCount": 2,
+      "successCount": 2,
       "failureCount": 0,
-      "averageDurationMs": 1,
-      "lastRun": "2026-07-13T14:23:54.906Z",
-      "lastStartedAt": "2026-07-13T14:23:54.905Z",
-      "nextRun": "2026-07-14T10:32:39.565Z",
+      "averageDurationMs": 0.5,
+      "lastRun": "2026-07-15T15:17:53.498Z",
+      "lastStartedAt": "2026-07-15T15:17:53.498Z",
+      "nextRun": "2026-07-15T15:17:53.497Z",
       "isRunning": false
     },
     "audit": {
@@ -17,7 +17,7 @@
       "successCount": 0,
       "failureCount": 0,
       "averageDurationMs": 0,
-      "nextRun": "2026-07-14T10:34:39.565Z",
+      "nextRun": "2026-07-15T15:19:53.497Z",
       "isRunning": false
     },
     "optimize": {
@@ -25,7 +25,7 @@
       "successCount": 0,
       "failureCount": 0,
       "averageDurationMs": 0,
-      "nextRun": "2026-07-14T10:36:39.565Z",
+      "nextRun": "2026-07-15T15:21:53.497Z",
       "isRunning": false
     },
     "consolidate": {
@@ -33,7 +33,7 @@
       "successCount": 0,
       "failureCount": 0,
       "averageDurationMs": 0,
-      "nextRun": "2026-07-14T10:38:39.565Z",
+      "nextRun": "2026-07-15T15:23:53.497Z",
       "isRunning": false
     },
     "testgaps": {
@@ -41,7 +41,7 @@
       "successCount": 0,
       "failureCount": 0,
       "averageDurationMs": 0,
-      "nextRun": "2026-07-14T10:40:39.565Z",
+      "nextRun": "2026-07-15T15:25:53.497Z",
       "isRunning": false
     },
     "backup": {
@@ -49,7 +49,7 @@
       "successCount": 0,
       "failureCount": 0,
       "averageDurationMs": 0,
-      "nextRun": "2026-07-14T10:42:39.565Z",
+      "nextRun": "2026-07-15T15:27:53.497Z",
       "isRunning": false
     },
     "harness": {
@@ -57,7 +57,7 @@
       "successCount": 0,
       "failureCount": 0,
       "averageDurationMs": 0,
-      "nextRun": "2026-07-14T10:44:39.565Z",
+      "nextRun": "2026-07-15T15:29:53.497Z",
       "isRunning": false
     },
     "predict": {
@@ -87,6 +87,7 @@
     },
     "ttlMs": 43200000,
     "idleShutdownMs": 0,
+    "aiWorkersEnabled": false,
     "workers": [
       {
         "type": "map",
@@ -162,5 +163,5 @@
       }
     ]
   },
-  "savedAt": "2026-07-14T10:32:39.566Z"
+  "savedAt": "2026-07-15T15:17:53.498Z"
 }
