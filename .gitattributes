@@ -3,5 +3,6 @@ ppl/data/bace810_pH_74_s1_to_s13_reset_taut_prot_states_rm_duplicates_s10_reset_
 ppl/data/bace809_200conf_descriptors_and_split.csv filter=lfs diff=lfs merge=lfs -text
 ppl/kid_calculator/bace809_200confs.sdf filter=lfs diff=lfs merge=lfs -text
 ppl/data/*.csv filter=lfs diff=lfs merge=lfs -text
+ppl/kid_calculator/*.sdf filter=lfs diff=lfs merge=lfs -text
 ppl/kid_calculator/bace809_200confs_ls.sdf filter=lfs diff=lfs merge=lfs -text
 ppl/kid_calculator/bace809_200confs_sch.sdf filter=lfs diff=lfs merge=lfs -text
