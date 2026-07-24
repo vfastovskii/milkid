@@ -46,7 +46,8 @@ dependencies = [
     "rdkit (>=2025.9.1,<2026.0.0)",
     "kaleido (>=1.2.0,<2.0.0)",
     "openpyxl (>=3.1.5,<4.0.0)",
-    "lightgbm (>=4.6.0,<5.0.0)"
+    "lightgbm (>=4.6.0,<5.0.0)",
+    "scikit-fingerprints (>=2.0.0,<3.0.0)"
 ]
 
 

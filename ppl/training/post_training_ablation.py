@@ -360,12 +360,18 @@ def run_instance_importance_selection(
                 selection_by_bag_id[bag_key] = selected_indices
 
                 instance_ids = conf_ids.get(bag_key) if conf_ids else None
+                if instance_ids is not None and len(instance_ids) != valid_idx.numel():
+                    raise ValueError(
+                        f"[ABLATION] conformer-id / attention length mismatch for bag "
+                        f"{bag_key}: {len(instance_ids)} ids vs {valid_idx.numel()} valid "
+                        "instances. Refusing to guess an alignment."
+                    )
                 for pos, idx_t in enumerate(valid_idx):
                     idx = int(idx_t.item())
+                    # index the COMPACTED id list by compacted position, not by the padded
+                    # tensor index -- they coincide only while padding stays tail-only.
                     instance_id = (
-                        instance_ids[idx]
-                        if instance_ids is not None and idx < len(instance_ids)
-                        else str(idx)
+                        instance_ids[pos] if instance_ids is not None else str(idx)
                     )
                     rows.append(
                         {

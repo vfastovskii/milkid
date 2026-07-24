@@ -74,9 +74,14 @@ class MILModelLightningWrapper(
 
         self.save_hyperparameters(hparams)
 
-        # Loss: pure supervised objective; attention diagnostics stay out of loss.
+        # Loss: supervised objective (+ optional CCC anti-shrinkage term); attention
+        # diagnostics stay out of loss. CCC only affects the TRAIN loss — eval uses
+        # criterion.base (plain MSE) so val/test metrics stay comparable.
         try:
-            self.criterion = Loss(task=self.task)
+            self.criterion = Loss(
+                task=self.task,
+                ccc_weight=float(getattr(optim_cfg, "ccc_weight", 0.0) or 0.0),
+            )
         except Exception as e:
             LOGGER.error(f"Failed to initialize loss function: {e}")
             LOGGER.error(traceback.format_exc())

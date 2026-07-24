@@ -22,6 +22,10 @@ class DataLoaderConfig:
     split_col: str = "split"  # 0=train,1=val,2=test
     series_col: Optional[str] = None
 
+    # drop bags whose endpoint is below this value (e.g. pIC50 < 4), from every
+    # split. None disables the filter.
+    min_endpoint_value: Optional[float] = None  # None = keep full activity range (no low-endpoint drop)
+
     # splits
     predefined_split: bool = True  # use the [split_col] column: 0=train, 1=val, 2=test
     test_size: float = 0.1  # only used when predefined_split=False
@@ -37,6 +41,19 @@ class DataLoaderConfig:
     # w(s)=|s|·n_series/N to undo the sampler's group oversampling (unbiased
     # objective). Set False for a deliberately macro-averaged (per-series) objective.
     series_balance_importance_weight: bool = True
+
+    # Label-Distribution-Smoothing (LDS) target-density loss weighting. Multiplies
+    # each train bag's loss by w_lds(y) = density(y)^(-alpha) (Gaussian-smoothed
+    # histogram of pIC50, mean-normalised, clipped to [lds_min, lds_max]) so the
+    # sparse activity extremes get gradient share proportional to their rarity,
+    # countering the MSE-toward-mean shrinkage. Combines multiplicatively with the
+    # series importance weight. Off by default.
+    target_density_weighting: bool = False
+    lds_alpha: float = 0.5       # 0 = uniform, 1 = full inverse-density; temper on small tails
+    lds_sigma: float = 1.0       # Gaussian smoothing kernel width, in histogram bins
+    lds_bin_width: float = 0.5   # pIC50 histogram bin width
+    lds_min: float = 0.5         # per-sample weight floor (after mean-normalisation)
+    lds_max: float = 4.0         # per-sample weight cap — keeps a handful of extremes from dominating
 
     # optional per-bag conformer clustering in scaled descriptor space
     cluster_instances: bool = False

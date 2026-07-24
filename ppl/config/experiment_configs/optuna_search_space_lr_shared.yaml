@@ -1,0 +1,35 @@
+# SHARED-LR stage — a few cheap trials to find the reasonable global LR scale
+# BEFORE opening up per-component ratios. Every component shares ONE learning rate:
+# the absolute *_lr are null and all *_lr_factor = 1.0 in run_config, so
+# component_lr() = base_lr for all five (embedder, self-attn, aggregator,
+# predictor, active-query). This is a 1-D search — ~10-15 trials converge fast.
+#
+# Read the winning model.optim.lr, then run the codependent stage
+# (optuna_search_space.yaml), narrowing its base_lr bounds around this value.
+base_config: ppl/config/experiment_configs/run_config.yaml
+
+groups:
+  # The single shared learning rate. Spans below the run5 (overfit) regime up to
+  # the old aggregator LR, centred near the geometric mean (~4e-5) of the prior
+  # per-component LRs.
+  shared_lr:
+    model.optim.lr:
+      type: float
+      low: 8.0e-6
+      high: 1.2e-4
+      log: true
+
+fixed_overrides:
+  # Pin every component to the shared LR (factors = 1) and keep the pose knobs at
+  # their run_config defaults so this stage isolates the LR scale alone.
+  model.optim.embedder_lr_factor: 1.0
+  model.optim.self_attention_lr_factor: 1.0
+  model.optim.aggregator_lr_factor: 1.0
+  model.optim.predictor_lr_factor: 1.0
+  model.optim.active_query_lr_factor: 1.0
+  model.optim.weight_decay: 3.0e-3
+  trainer.max_epochs: 60
+  trainer.save_attention_artifacts: false
+  trainer.log_per_epoch: false
+  trainer.enable_progress_bar: false
+  trainer.enable_model_summary: false

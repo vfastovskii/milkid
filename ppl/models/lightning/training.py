@@ -450,6 +450,33 @@ class TrainingMethods(_CurriculumMixin, nn.Module):
             dtype=ref.dtype,
         )
 
+    def _lds_weight(self, y, ref):
+        """Per-bag LDS target-density weight from the data module, or None.
+
+        Looks up density(y)^(-alpha) per bag by binning the raw pIC50 target.
+        None when target_density_weighting is off. Multiplies the series weight.
+        """
+        dm = getattr(getattr(self, "trainer", None), "datamodule", None)
+        lds = getattr(dm, "lds_weights", None) if dm is not None else None
+        if not lds:
+            return None
+        import numpy as np
+
+        edges, w = lds
+        y_np = y.detach().cpu().float().flatten().numpy()
+        idx = np.clip(np.digitize(y_np, edges) - 1, 0, len(w) - 1)
+        return torch.tensor(w[idx], device=ref.device, dtype=ref.dtype)
+
+    def _train_sample_weight(self, series_labels, y, ref):
+        """Combined per-bag TRAIN loss weight = series importance × LDS density (either may be absent)."""
+        w = self._series_importance_weight(series_labels, ref)
+        w_lds = self._lds_weight(y, ref)
+        if w is None:
+            return w_lds
+        if w_lds is None:
+            return w
+        return w * w_lds.flatten()
+
     def _shared_step(self, batch, stage: str):
         """Shared logic for training, validation, and test steps.
 
@@ -618,7 +645,7 @@ class TrainingMethods(_CurriculumMixin, nn.Module):
                 # sampler's oversampling (unbiased estimate of the true-distribution
                 # loss). None for eval and for unbalanced/random batching.
                 weight = (
-                    self._series_importance_weight(series_labels, logit)
+                    self._train_sample_weight(series_labels, y, logit)
                     if stage == "train"
                     else None
                 )

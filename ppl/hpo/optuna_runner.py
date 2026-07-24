@@ -353,7 +353,18 @@ class HpoStudy:
             storage=self.storage,
             load_if_exists=True,
             directions=["maximize", "minimize"],
-            sampler=optuna.samplers.NSGAIISampler(seed=self.seed),
+            # Multi-objective TPE, not NSGA-II. NSGA-II is population-based with
+            # population_size=50 by default, so at our trial budget (~30) it never
+            # finishes its initial random population — i.e. it degenerates to random
+            # search. TPE starts exploiting after n_startup_trials.
+            # multivariate=True models parameter INTERACTIONS, which matters here:
+            # component LR = base_lr × factor, so the base and the factors are
+            # correlated by construction and must not be modelled independently.
+            sampler=optuna.samplers.TPESampler(
+                seed=self.seed,
+                n_startup_trials=8,   # ~1/4 of a 30-trial budget on random exploration
+                multivariate=True,
+            ),
         )
         prior = _count_complete(study)  # trials already done (when resuming a study)
 
@@ -433,8 +444,10 @@ def main(argv: list[str] | None = None) -> int:
     trial_root.mkdir(parents=True, exist_ok=True)
 
     if args.dry_run:
-        study = optuna.create_study(directions=["maximize", "minimize"],
-                                    sampler=optuna.samplers.NSGAIISampler(seed=42))
+        study = optuna.create_study(
+            directions=["maximize", "minimize"],
+            sampler=optuna.samplers.TPESampler(seed=42, n_startup_trials=8, multivariate=True),
+        )
         for _ in range(args.n_trials):
             trial = study.ask()
             name = _trial_name(args.study_name, trial.number)

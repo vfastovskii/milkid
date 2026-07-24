@@ -2,7 +2,7 @@
 task: regression
 
 data:
-  csv_path: ppl/data/bace809_200conf_descriptors_and_split.csv
+  csv_path: ppl/data/bace809_200confs_sch_descriptors_no_Hs_and_split.csv
   task: regression
   descriptor_cols: null
 
@@ -16,6 +16,9 @@ data:
   split_col: split
   series_col: Series
 
+  # no endpoint filtering — keep the full activity range (extremes matter for dynamic range)
+  min_endpoint_value: null
+
   # split strategy (predefined split column: 0=train, 1=val, 2=test)
   predefined_split: true
   test_size: 0.2  # only used when predefined_split=false
@@ -27,14 +30,29 @@ data:
   pin_memory: true
   balance_train_batches_by_series: true   # every batch contains all series (Option A)
   series_balance_importance_weight: true  # importance-weight the train loss to undo the oversampling (unbiased)
+  # LDS target-density weighting — upweight the sparse activity extremes to fight regression-to-mean shrinkage
+  target_density_weighting: true
+  lds_alpha: 0.5      # inverse-density strength (0=uniform, 1=full); tempered because tails are tiny
+  lds_sigma: 1.0      # histogram smoothing width (bins)
+  lds_bin_width: 0.5  # pIC50 bin width
+  lds_min: 0.5        # per-sample weight floor
+  lds_max: 4.0        # per-sample weight cap (keeps ~50 extreme mols from dominating)
   num_workers: 0
 
   # per-molecule conformer clusters in scaled original descriptor space
   cluster_instances: true
   cluster_selection_method: silhouette
-  cluster_max_clusters: 6
-  cluster_min_clusters: 1
-  cluster_min_silhouette: 0.08
+  # k is chosen by argmax silhouette, which on this data always lands on the smallest
+  # candidate: with max=6 the median k used was 2, and raising max to 20 alone still gave
+  # k=2. Only the FLOOR moves it. Measured best-cluster near-native purity on the val PDB
+  # actives (ceiling for a perfect cluster picker): k=2 -> 0.586, k=16 -> 0.782, k=20 -> 0.804,
+  # k=40 -> 0.741 (over-fragments). min==max pins k=20 and makes the silhouette search inert
+  # by construction; min_silhouette below is likewise inert because its collapse-to-1 branch
+  # only fires when min_clusters <= 1. Bags with <21 conformers (75 of 809) degrade to one
+  # cluster per conformer, which is harmless but leaves the hierarchy inert for them.
+  cluster_max_clusters: 20 # was 6 "paper 6"
+  cluster_min_clusters: 20
+  cluster_min_silhouette: 0.08  # inert while cluster_min_clusters > 1
   cluster_distance_threshold: null
   cluster_linkage: average
   cluster_metric: euclidean
@@ -81,8 +99,14 @@ model:
     bag_repr_source: weighted_sum
     refine_top_k_clusters: 1
     cluster_refinement_mode: soft
-    refine_mix: 0.7
+    # 1.0 drops the beta_c/|c| uniform term, whose per-cluster renormalization ranks
+    # instances by attention-share / population-share rather than by attention: at 0.7 it
+    # inflated a 2-member cluster's instances ~10x over a 100-member cluster's. Cluster
+    # signal now enters only as the beta_c**cluster_bias_power bias on one global softmax.
+    # Lower it below 1.0 to restore the uniform floor if attention collapses.
+    refine_mix: 1.0
     refine_mix_learnable: false
+    cluster_bias_power: 1.0  # lambda in p_i * beta_c**lambda; 0 ignores clusters, >1 sharpens
     external_query_gate_init: 0.15
     cluster_loss_coeff: 0.02
     cluster_compactness_weight: 0.75
@@ -94,14 +118,18 @@ model:
     hidden_dim: 256
     num_layers: 2
     expansion: 2.0
-    dropout: 0.2
-    stochastic_depth: 0.08
-    head_dropout: 0.2
+    dropout: 0.2         # restored to the original regularization (run5 overfit when cut to 0.05/0.1)
+    stochastic_depth: 0.08  # restored
+    head_dropout: 0.2    # restored
     output_dim: 1
 
   active_prototype_kwargs:
     enabled: true
-    warmup_epochs: 5 # bank starts collecting at epoch 5, runs to end of training
+    # Gate is `current_epoch >= warmup_epochs` on Lightning's 0-indexed epoch, so the bank
+    # starts collecting on the third pass. Safe to start this early because the bank is a
+    # full per-epoch REBUILD (rebuild_from_candidates), not an accumulation -- prototypes
+    # picked by an immature epoch-2 model are discarded at epoch 3, never carried forward.
+    warmup_epochs: 2 # was 5; bank starts collecting at epoch 2, runs to end of training
     query_start_epoch: 10 #paper10
     # NOTE: query_ramp_epochs / query_max_weight below are INERT while the
     # aggregator-focus curriculum owns the query (attention_refinement_enabled: true).
@@ -141,14 +169,17 @@ model:
     use_on_eval: true
 
   optim:
-    lr: 0.0001
-    # Per-component LRs — HPO-optimized (best trial milk_hpo_mac_20260712_182719_trial_0019).
-    embedder_lr: 3.1174220030046304e-05
-    self_attention_lr: 8.037712553528748e-05   # not tuned by HPO (left fixed)
-    aggregator_lr: 0.00013056347746385837
-    predictor_lr: 1.343427964743022e-05
-    active_query_lr: 2.1425215972830185e-05
-    weight_decay: 0.002955782682076399
+    # LR parameterization: base lr × per-component factor (below). The absolute
+    # per-component *_lr are null, so component_lr() = base_lr × *_lr_factor
+    # (optimization.py:76). With all factors = 1.0 every component shares `lr`
+    # (the "shared LR" regime); the HPO sweeps the factors for codependent LRs.
+    lr: 4.0e-5   # shared base LR — lowered from the per-component values that overfit in run5
+    embedder_lr: null
+    self_attention_lr: null
+    aggregator_lr: null
+    predictor_lr: null
+    active_query_lr: null
+    weight_decay: 3.0e-3   # restored to the original high regularization
     scheduler: none  # the aggregator-focus curriculum owns LR (loss-linked); no plain plateau scheduler
     lr_patience: 15 #paper 30  # unused while scheduler=none
     factor: 0.01
@@ -159,14 +190,19 @@ model:
     aggregator_lr_factor: 1.0  # Explicit LR factor for aggregator
     predictor_lr_factor: 1.0  # Explicit LR factor for predictor
     active_query_lr_factor: 1.0  # Explicit LR factor for bioactive query builder
+    # CCC anti-shrinkage auxiliary loss: loss += ccc_weight·(1 − CCC). OFF for now so
+    # the LR search isn't confounded by batch-CCC noise; re-enable (~0.1, with
+    # accumulate_grad_batches) once a stable LR regime is found.
+    ccc_weight: 0.0
 
 trainer:
   max_epochs: 100
+  accumulate_grad_batches: 1   # 1 for the LR search (CCC off); raise to ~4 when re-enabling CCC
   min_epochs: 0
   device: auto   # auto -> CUDA if available, else MPS, else CPU (use "cpu" for bitwise-reproducible runs)
   precision: "32-true"
   log_every_n_steps: 10  # Set to a lower value since we only have 37 training batches
-  experiment_name: bace809_jul8_run20 #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_double_scale_fix
+  experiment_name: bace809_jul22_sch_no_Hs_run5 #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_double_scale_fix
   run_name: null
   tracking_uri: null
   log_per_epoch: false
@@ -175,7 +211,7 @@ trainer:
   checkpoint_min_epoch: 20  # only select the best model from epoch >= 30 (training reaches it)
   # Per-epoch KID pose-selection metric (top-k attention success vs experimental pose)
   kid_metric_enabled: true
-  kid_sdf_path: ppl/kid_calculator/bace809_200confs.sdf
+  kid_sdf_path: ppl/kid_calculator/bace809_200confs_sch.sdf
   kid_top_k: [1, 3, 5]
   kid_rmsd_threshold: 2.0
   kid_o3a_threshold: 0.8
@@ -190,8 +226,8 @@ trainer:
   attention_refinement_min_delta: 0.005
   attention_refinement_lr_factor: 0.01
   attention_refinement_query_ramp_epochs: 5    # EFFECTIVE ramp when curriculum on (overrides active_prototype_kwargs.query_ramp_epochs)
-  attention_refinement_query_max_weight: 1.0 #paper 0.8    # EFFECTIVE max query weight (overrides active_prototype_kwargs.query_max_weight)
-  attention_refinement_min_focus_epochs: 35  #paper 25 # run the active-prototype phase ≥20 epochs before the plateau-stop
+  attention_refinement_query_max_weight: 0.8 #paper 0.8    # EFFECTIVE max query weight (overrides active_prototype_kwargs.query_max_weight)
+  attention_refinement_min_focus_epochs: 25  #paper 25 # run the active-prototype phase ≥20 epochs before the plateau-stop
   enable_progress_bar: true
   enable_model_summary: true
   validation_instance_importance_enabled: false

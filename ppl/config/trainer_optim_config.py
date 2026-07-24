@@ -28,3 +28,8 @@ class TrainerOptimConfig:
     aggregator_lr_factor: float = 1.0  # Explicit LR factor for aggregator
     predictor_lr_factor: float = 1.0  # Explicit LR factor for predictor
     active_query_lr_factor: float = 1.0  # LR factor for bioactive query builder
+    # Concordance-correlation (CCC) auxiliary loss weight: loss += ccc_weight·(1 − CCC(ŷ,y)).
+    # CCC rewards slope→1 and variance-match, directly countering MSE regression-to-mean
+    # shrinkage. 0 = pure MSE (default). Batch-estimated, so use a larger effective batch
+    # (trainer.accumulate_grad_batches) when enabling on small batch sizes.
+    ccc_weight: float = 0.0

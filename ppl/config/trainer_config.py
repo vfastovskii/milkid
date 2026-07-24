@@ -33,6 +33,10 @@ class TrainerConfig:
     enable_progress_bar: bool = True
     enable_model_summary: bool = True
     num_sanity_val_steps: int = 0
+    # Gradient accumulation: raises the EFFECTIVE batch size without more memory.
+    # Useful when the CCC auxiliary loss is on (batch-estimated CCC is noisy at
+    # small batch sizes). Does not change the epoch-based curriculum timing.
+    accumulate_grad_batches: int = 1
 
     # Logging parameters
     experiment_name: str = "mil_exp"
@@ -141,6 +145,7 @@ def build_trainer(
         "enable_progress_bar": config.enable_progress_bar,
         "enable_model_summary": config.enable_model_summary,
         "num_sanity_val_steps": config.num_sanity_val_steps,
+        "accumulate_grad_batches": int(getattr(config, "accumulate_grad_batches", 1) or 1),
     }
     # Stopping is loss-controlled: the aggregator-focus curriculum stops on the
     # validation plateau (or Lightning EarlyStopping when the curriculum is off).

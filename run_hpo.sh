@@ -30,7 +30,7 @@ export TOKENIZERS_PARALLELISM=false
 # No OMP/MKL thread caps: let PyTorch use all CPU cores for intra-op parallelism (the CPU speedup).
 
 # --- knobs ---
-N_TRIALS="${N_TRIALS:-20}"
+N_TRIALS="${N_TRIALS:-30}"
 N_JOBS="${N_JOBS:-1}"              # sequential — each trial gets all cores; >1 just oversubscribes the CPU
 NUM_WORKERS="${NUM_WORKERS:-0}"    # dataloader workers; data is tiny, 0 is fine (try 2-4 to overlap I/O)
 DEVICE="${DEVICE:-cpu}"            # CPU is faster than MPS here; set DEVICE=mps to try the GPU

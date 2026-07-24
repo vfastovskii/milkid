@@ -327,6 +327,7 @@ def build_bags(df: pd.DataFrame, cfg: DataLoaderConfig, split_name: str = "") ->
         return [], np.array([], dtype=np.float32), [], []
 
     bags, labels, ids, inst_ids = [], [], [], []
+    dropped_low_endpoint = 0
 
     # Get unique bag IDs for progress reporting
     unique_bag_ids = df[cfg.bag_id_col].unique()
@@ -348,6 +349,10 @@ def build_bags(df: pd.DataFrame, cfg: DataLoaderConfig, split_name: str = "") ->
 
             # Extract label for this original bag
             tgt_raw = sub[cfg.endpoint_value_col].iat[0]
+            # Drop low-endpoint bags (e.g. pIC50 < 4) from every split.
+            if cfg.min_endpoint_value is not None and float(tgt_raw) < cfg.min_endpoint_value:
+                dropped_low_endpoint += 1
+                continue
             label_val = float(int(tgt_raw)) if cfg.task == "classification" else float(tgt_raw)
 
             if split_name.lower() == "train":
@@ -400,6 +405,14 @@ def build_bags(df: pd.DataFrame, cfg: DataLoaderConfig, split_name: str = "") ->
             LOGGER.error(f"Error processing bag {mol_id}: {e}")
             # Skip this bag
             continue
+
+    if dropped_low_endpoint:
+        kept_mols = len(unique_bag_ids) - dropped_low_endpoint
+        LOGGER.info(
+            f"[build_bags] {split_name}: removed {dropped_low_endpoint} bags with "
+            f"{cfg.endpoint_value_col} < {cfg.min_endpoint_value} "
+            f"({kept_mols}/{len(unique_bag_ids)} molecules kept -> {len(bags)} bags)"
+        )
 
     if not bags:
         LOGGER.warning(f"No valid bags found for {split_name} split")

@@ -1,59 +1,72 @@
-# Focused multi-objective search space. Objectives: maximize val_rmsd_top1, minimize val_rmse.
+# Multi-objective search space — CODEPENDENT LR stage. Objectives: maximize
+# val_rmsd_top1 (KID pose selection), minimize val_rmse (regression performance).
 #
-# INVARIANT: architecture AND training are IDENTICAL from trial to trial. HPO varies ONLY
-# (a) per-component learning rates and (b) a few active-prototype BANK-FORMATION knobs.
-# Everything else — model dims/layers/aggregator structure, embed_dim, batch_size,
-# max_epochs, the aggregator-focus curriculum (attention_refinement_*: query max_weight,
-# ramp, patience, lr_factor), warmup_epochs, candidate_selection (fixed = blended),
-# blend weights, active_threshold — is held fixed at the base config's values, so any
-# trial-to-trial difference in val_rmsd_top1 / val_rmse is attributable to LR + bank
-# formation alone.
-#
-# Deliberately NOT tuned (would change architecture or training across trials):
-#   - trainer.attention_refinement_query_{max_weight,ramp_epochs}  -> curriculum = TRAINING
-#   - model.aggregator_kwargs.external_query_gate_init             -> proj init = ARCHITECTURE
-#   - model.active_prototype_kwargs.candidate_selection           -> fixed at 'blended'
+# LR PARAMETERIZATION (codependent): instead of five independent absolute LRs, we
+# sweep ONE base `model.optim.lr` and five per-component ratio factors. Each
+# component's LR = base_lr × factor (optimization.py:76, since the absolute *_lr
+# are null in run_config). This is better-conditioned than 5 free LRs: the base
+# sets the overall scale, the factors set relative ratios (tight bounds), and the
+# "all equal" case is simply every factor ≈ 1. Run the shared-LR stage first
+# (optuna_search_space_lr_shared.yaml) to find the base scale, then narrow
+# `model.optim.lr` here around that winner before the codependent run.
 base_config: ppl/config/experiment_configs/run_config.yaml
 
 groups:
-  # (a) Per-component learning rates. The global model.optim.lr is INERT — every component
-  # has an explicit absolute LR in run_config, so component_lr() returns those and never
-  # falls back to base_lr. Tune the actual per-component LRs. (self_attention_lr left fixed.)
-  learning_rates:
-    model.optim.embedder_lr:               # base ~2.5e-5
+  # Overall LR scale. Narrowed to the KNEE of the shared-LR study (12 trials):
+  # trial 9 @ 5.44e-5 gave KID 0.522 (tied with the 0.546 max inside noise) AND
+  # rmse 0.815 (near the 0.778 best) — it dominates most of the space. With the
+  # factors below this still spans per-component 4e-6..3.2e-4, i.e. everything
+  # the shared study explored, but concentrates trials where they pay.
+  base_lr:
+    model.optim.lr:
       type: float
-      low: 1.0e-5
-      high: 1.0e-4
-      log: true
-    model.optim.aggregator_lr:             # base ~1.3e-4 — the module the prototype query corrects
-      type: float
-      low: 3.0e-5
-      high: 5.0e-4
-      log: true
-    model.optim.predictor_lr:              # base ~9.5e-6
-      type: float
-      low: 3.0e-6
-      high: 1.0e-4
-      log: true
-    model.optim.active_query_lr:           # base ~7e-5 — LR of the active-prototype query builder
-      type: float
-      low: 2.0e-5
-      high: 3.0e-4
+      low: 2.5e-5
+      high: 8.0e-5
       log: true
 
-  # (b) Active-prototype BANK-FORMATION knobs (how the per-epoch bank is built; the
-  # selection mechanism itself, candidate_selection=blended, is FIXED). These do not touch
-  # architecture or the training curriculum.
-  bank_builder:
-    model.active_prototype_kwargs.top_m_candidates:       # candidate conformers kept per active molecule.
-      type: int                                           # Capped at 4 so it stays BELOW the fixed
-      low: 2                                              # ablation_candidate_pool=5 (else re-rank inert).
-      high: 4
-    # ablation_candidate_pool is FIXED at 5 (run_config) — chosen for speed (5 leave-one-out
-    # forwards/molecule). min_active_prototypes is FIXED at 16 (gates query engagement, part of
-    # the training schedule that stays constant across trials). Neither is swept.
+  # Per-component ratio factors: component_lr = base_lr × factor.
+  #
+  # ASYMMETRIC BY DESIGN. The shared study showed the two objectives pull the LR in
+  # OPPOSITE directions: corr(log lr, val_rmse) = -0.67 (rmse wants a HIGH lr) but
+  # corr(log lr, KID_top1) = -0.44 (pose selection wants a LOW lr). One shared LR
+  # cannot serve both — that trade-off is exactly what these factors break. So the
+  # head (which drives rmse) is biased FAST, and the pose-selection path (aggregator
+  # + active-query builder, which drives KID) is biased SLOW.
+  lr_ratios:
+    model.optim.embedder_lr_factor:         # neutral — feeds both objectives
+      type: float
+      low: 0.3
+      high: 2.0
+      log: true
+    model.optim.self_attention_lr_factor:   # neutral — feeds both objectives
+      type: float
+      low: 0.3
+      high: 2.0
+      log: true
+    model.optim.aggregator_lr_factor:       # BIAS SLOW — drives pose selection (KID)
+      type: float
+      low: 0.15
+      high: 1.5
+      log: true
+    model.optim.predictor_lr_factor:        # BIAS FAST — drives val_rmse / output slope
+      type: float
+      low: 0.8
+      high: 4.0
+      log: true
+    model.optim.active_query_lr_factor:     # BIAS SLOW — prototype query builder (KID)
+      type: float
+      low: 0.15
+      high: 1.5
+      log: true
+
+  # NOTE: the KID pose-selection knobs are deliberately NOT swept here — they live in
+  # optuna_search_space_pose.yaml and run as a separate stage. Rationale: the shared-LR
+  # study showed KID replicate noise (±0.12 at identical LR) exceeds the LR effect
+  # (0.073), so piling 9 dims into one noisy multi-objective study mostly fits noise.
+  # Lock the LRs here first, then sweep the pose knobs on top of the winner.
 
 fixed_overrides:
+  model.optim.weight_decay: 3.0e-3  # pinned (not swept)
   trainer.max_epochs: 60
   # Speed: HPO trials skip the expensive attention/embedding exports and per-epoch dumps.
   # The final best-params retrain turns these back on (optuna_final_pipeline._retrain_over_seeds).

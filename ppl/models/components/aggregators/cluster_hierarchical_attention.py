@@ -196,6 +196,7 @@ class ClusterHierarchicalAttentionAggregator(nn.Module):
         cluster_refinement_mode: Literal["topk", "soft"] = "topk",
         refine_mix: float = 0.5,
         refine_mix_learnable: bool = False,
+        cluster_bias_power: float = 1.0,
         external_query_gate_init: float = 0.5,
         cluster_loss_coeff: float = 0.005,
         cluster_compactness_weight: float = 1.0,
@@ -223,6 +224,10 @@ class ClusterHierarchicalAttentionAggregator(nn.Module):
             )
         if not 0.0 <= refine_mix <= 1.0:
             raise ValueError(f"refine_mix must be in [0, 1], got {refine_mix}")
+        if cluster_bias_power < 0.0:
+            raise ValueError(
+                f"cluster_bias_power must be non-negative, got {cluster_bias_power}"
+            )
         if attn_mlp_ratio <= 0.0:
             raise ValueError(f"attn_mlp_ratio must be positive, got {attn_mlp_ratio}")
         if residual_scale_init < 0.0:
@@ -270,6 +275,7 @@ class ClusterHierarchicalAttentionAggregator(nn.Module):
         self.use_temperature = bool(use_temperature)
         self.refine_top_k_clusters = int(refine_top_k_clusters)
         self.cluster_refinement_mode = cluster_refinement_mode
+        self.cluster_bias_power = float(cluster_bias_power)
         self.cluster_loss_coeff = float(cluster_loss_coeff)
         self.cluster_compactness_weight = float(cluster_compactness_weight)
         self.cluster_separation_weight = float(cluster_separation_weight)
@@ -771,8 +777,14 @@ class ClusterHierarchicalAttentionAggregator(nn.Module):
         )
         if self.cluster_refinement_mode == "soft":
             cluster_gate = self._cluster_gate_per_instance(beta, cluster_ids, valid)
+            # p_i * beta_c**lambda, renormalized ONCE over every valid instance, i.e. a
+            # single softmax with the cluster prior as an additive logit bias. It must not
+            # become a per-cluster renormalization: dividing each instance by its cluster
+            # size (as alpha_cluster below does) lets a 2-member cluster outrank a
+            # 100-member one whenever its attention share beats its population share.
             alpha_refined = self._normalize_instance_alpha(
-                alpha_raw * cluster_gate,
+                alpha_raw
+                * cluster_gate.clamp_min(self.eps).pow(self.cluster_bias_power),
                 valid,
             )
         else:

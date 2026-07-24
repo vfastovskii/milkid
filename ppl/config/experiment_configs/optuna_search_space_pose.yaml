@@ -1,0 +1,48 @@
+# POSE-SELECTION stage — sweeps only the KID pose knobs, on top of an already-locked
+# LR regime. Run this AFTER the codependent LR stage (optuna_search_space.yaml).
+#
+# PREREQUISITE: fold the lr_codep winner into run_config.yaml first — set
+# model.optim.lr and the five model.optim.*_lr_factor to the winning values. This
+# stage holds them fixed (they are not in `groups`), so whatever run_config carries
+# is what every trial uses.
+#
+# WHY SEPARATE: the shared-LR study showed KID (val_rmsd_top1) replicate noise is
+# ±0.12 at an identical LR — larger than the LR effect itself (0.073), because KID
+# is scored on only ~21-26 valid validation molecules. Sweeping 9 dims against that
+# noise mostly fits noise. Isolating the 3 pose knobs keeps the search small enough
+# that a real effect can clear the noise floor.
+#
+# All three knobs are NON-learned at runtime, so they directly control which conformer
+# the attention picks — the exact mechanism val_rmsd_top1 measures.
+base_config: ppl/config/experiment_configs/run_config.yaml
+
+groups:
+  pose_selection:
+    trainer.attention_refinement_query_max_weight:  # base 0.8 — bioactive-prototype query authority (curriculum cap, [0,1])
+      type: float
+      low: 0.5
+      high: 1.0
+    # Replaces the old refine_mix sweep: refine_mix is now pinned at 1.0 so the
+    # size-diluted beta_c/|c| term is gone, and this is the option-1-native knob for the
+    # same cluster-vs-instance balance. Sweeping refine_mix again would reintroduce the
+    # per-cluster renormalization the pin exists to remove.
+    model.aggregator_kwargs.cluster_bias_power:     # base 1.0 — cluster-prior strength in p_i * beta_c**lambda
+      type: float
+      low: 0.5
+      high: 2.0
+      log: true
+    model.active_prototype_kwargs.query_temperature:  # base 0.2 — prototype→conformer match sharpness (q / tau)
+      type: float
+      low: 5.0e-2
+      high: 5.0e-1
+      log: true
+
+fixed_overrides:
+  model.optim.weight_decay: 3.0e-3  # pinned (not swept)
+  trainer.max_epochs: 60
+  # Speed: HPO trials skip the expensive attention/embedding exports and per-epoch dumps.
+  # The final best-params retrain turns these back on (optuna_final_pipeline._retrain_over_seeds).
+  trainer.save_attention_artifacts: false
+  trainer.log_per_epoch: false
+  trainer.enable_progress_bar: false
+  trainer.enable_model_summary: false

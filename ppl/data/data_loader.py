@@ -107,6 +107,8 @@ class MILDataModule(pl.LightningDataModule):
         self.bag_conf_ids: dict[str, list[str]] = {}
         # {series: importance weight} for balanced-batch training; None when off.
         self.series_importance_weights: Optional[dict[str, float]] = None
+        # LDS target-density weighting: (bin_edges, per_bin_weight) over train pIC50; None when off.
+        self.lds_weights: Optional[tuple] = None
 
     # Lightning API
     def setup(self, stage: str | None = None):
@@ -127,6 +129,7 @@ class MILDataModule(pl.LightningDataModule):
         # Implementation details are in data_module_impl.py
         setup_data_module(self, stage)
         self.series_importance_weights = self._compute_series_importance_weights()
+        self.lds_weights = self._compute_lds_weights()
 
     def _compute_series_importance_weights(self):
         """Per-series importance weight w(s) = |s|·n_series/N over the TRAIN bags.
@@ -150,6 +153,56 @@ class MILDataModule(pl.LightningDataModule):
         n = float(sum(sizes.values()))
         n_series = float(len(sizes))
         return {s: (float(sz) * n_series / n) for s, sz in sizes.items()}
+
+    def _compute_lds_weights(self):
+        """Label-Distribution-Smoothing per-bin weight over TRAIN pIC50, or None.
+
+        Returns (bin_edges, per_bin_weight) as numpy arrays. per_bin_weight is
+        density(y)^(-alpha) from a Gaussian-smoothed histogram, normalised so the
+        train-set mean weight is 1, then clipped to [lds_min, lds_max] and
+        re-normalised. Off unless cfg.target_density_weighting and the train split
+        carries labels. Only applied to the TRAIN loss (see LightningModule).
+        """
+        if not bool(getattr(self.cfg, "target_density_weighting", False)):
+            return None
+        import numpy as np
+
+        labels = getattr(self._train, "_labels", None)
+        if labels is None or len(labels) == 0:
+            return None
+        y = np.asarray(labels, dtype=float).ravel()
+        alpha = float(getattr(self.cfg, "lds_alpha", 0.5))
+        sigma = max(float(getattr(self.cfg, "lds_sigma", 1.0)), 1e-3)
+        bin_w = float(getattr(self.cfg, "lds_bin_width", 0.5))
+        wmin = float(getattr(self.cfg, "lds_min", 0.5))
+        wmax = float(getattr(self.cfg, "lds_max", 4.0))
+
+        lo, hi = float(y.min()), float(y.max())
+        edges = np.arange(lo, hi + bin_w, bin_w)
+        if edges.size < 2:
+            return None
+        hist, edges = np.histogram(y, bins=edges)
+        # Gaussian-smooth the histogram (the "distribution smoothing" in LDS).
+        radius = int(np.ceil(3 * sigma))
+        xk = np.arange(-radius, radius + 1)
+        kernel = np.exp(-(xk ** 2) / (2 * sigma ** 2))
+        kernel /= kernel.sum()
+        dens = np.convolve(hist.astype(float), kernel, mode="same")
+        dens = np.clip(dens, 1e-6, None)
+        w = dens ** (-alpha)
+        # Normalise so E_train[w] == 1 (weight is constant within a bin).
+        counts = hist.astype(float)
+        mean_w = (counts * w).sum() / max(counts.sum(), 1e-8)
+        w = w / max(mean_w, 1e-8)
+        w = np.clip(w, wmin, wmax)
+        mean_w = (counts * w).sum() / max(counts.sum(), 1e-8)  # re-normalise after clip
+        w = w / max(mean_w, 1e-8)
+        LOGGER.info(
+            "[LDS] target-density weighting on: %d train bags, %d bins [%.2f, %.2f], "
+            "alpha=%.2f sigma=%.2f, weight range [%.2f, %.2f]",
+            int(counts.sum()), w.size, lo, hi, alpha, sigma, float(w.min()), float(w.max()),
+        )
+        return (edges, w)
 
     def _cluster_bags(self, bags, split_name=""):
         """Cluster conformers per bag in scaled descriptor space."""

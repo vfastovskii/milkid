@@ -46,7 +46,7 @@ PY="${PY:-python}"
 # else the newest materialized conformer SDF anywhere in results/.
 SDF="${KID_SDF:-}"
 if [[ -z "$SDF" || ! -f "$SDF" ]]; then
-  canon="ppl/kid_calculator/bace809_200confs.sdf"
+  canon="ppl/kid_calculator/bace809_200confs_sch.sdf"
   if [[ -f "$canon" ]] && ! head -1 "$canon" | grep -q "git-lfs"; then
     SDF="$canon"
   else

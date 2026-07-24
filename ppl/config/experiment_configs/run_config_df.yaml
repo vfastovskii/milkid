@@ -2,7 +2,7 @@
 task: regression
 
 data:
-  csv_path: ppl/data/bace809_200conf_descriptors_and_split.csv
+  csv_path: ppl/data/bace809_200confs_sch_descriptors_no_Hs_and_split.csv
   task: regression
   descriptor_cols: null
 
@@ -23,7 +23,7 @@ data:
   seed: 42
 
   # dataloader params
-  batch_size: 13
+  batch_size: 16 #paper 13
   pin_memory: true
   balance_train_batches_by_series: true   # every batch contains all series (Option A)
   series_balance_importance_weight: true  # importance-weight the train loss to undo the oversampling (unbiased)
@@ -143,12 +143,12 @@ model:
   optim:
     lr: 0.0001
     # Per-component LRs — HPO-optimized (best trial milk_hpo_mac_20260712_182719_trial_0019).
-    embedder_lr: 3.1174220030046304e-05
-    self_attention_lr: 8.037712553528748e-05   # not tuned by HPO (left fixed)
-    aggregator_lr: 0.00013056347746385837
-    predictor_lr: 1.343427964743022e-05
-    active_query_lr: 2.1425215972830185e-05
-    weight_decay: 0.002955782682076399
+    embedder_lr: 3e-5
+    self_attention_lr: 8e-5   # not tuned by HPO (left fixed)
+    aggregator_lr: 4e-5
+    predictor_lr: 5e-5
+    active_query_lr: 2e-5
+    weight_decay: 3e-3
     scheduler: none  # the aggregator-focus curriculum owns LR (loss-linked); no plain plateau scheduler
     lr_patience: 15 #paper 30  # unused while scheduler=none
     factor: 0.01
@@ -166,7 +166,7 @@ trainer:
   device: auto   # auto -> CUDA if available, else MPS, else CPU (use "cpu" for bitwise-reproducible runs)
   precision: "32-true"
   log_every_n_steps: 10  # Set to a lower value since we only have 37 training batches
-  experiment_name: bace809_jul8_run19 #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_double_scale_fix
+  experiment_name: bace809_jul23_run23 #bace829_exp6_bs8_ge_concated_no_tempr_no_ba_conf_block_scale_double_scale_fix
   run_name: null
   tracking_uri: null
   log_per_epoch: false
@@ -175,7 +175,7 @@ trainer:
   checkpoint_min_epoch: 20  # only select the best model from epoch >= 30 (training reaches it)
   # Per-epoch KID pose-selection metric (top-k attention success vs experimental pose)
   kid_metric_enabled: true
-  kid_sdf_path: ppl/kid_calculator/bace809_200confs.sdf
+  kid_sdf_path: ppl/kid_calculator/bace809_200confs_sch.sdf
   kid_top_k: [1, 3, 5]
   kid_rmsd_threshold: 2.0
   kid_o3a_threshold: 0.8

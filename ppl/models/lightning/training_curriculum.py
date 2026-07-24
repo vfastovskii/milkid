@@ -142,10 +142,13 @@ class _CurriculumMixin:
             return
 
         scaled_groups = []
-        # Freeze the whole feature-extraction path — the per-instance embedder AND
-        # its within-bag self-attention/contextualizer — plus the predictor, while
-        # the aggregator and active-query builder keep learning during focus.
-        target_prefixes = ("Embedder.", "Self-attention/contextualizer.", "Predictor.")
+        # Freeze the feature-extraction path — the per-instance embedder AND its
+        # within-bag self-attention/contextualizer — while the aggregator, the
+        # active-query builder, AND the predictor head keep learning during focus.
+        # The predictor is the ONLY component that sets the output slope; freezing
+        # it locked in the early, compressed (regression-to-mean) fit, so it is
+        # deliberately exempted from the freeze.
+        target_prefixes = ("Embedder.", "Self-attention/contextualizer.")
         for optimizer in optimizers:
             for group in optimizer.param_groups:
                 name = str(group.get("name", ""))
@@ -279,8 +282,9 @@ class _CurriculumMixin:
             )
             logging.getLogger("milk").info(
                 "Aggregator-focus phase at epoch %d: val %s plateaued (%d epochs no gain) "
-                "and %d active prototypes are ready — cutting embedder/predictor LR ×%.3g "
-                "(the aggregator keeps its LR), ramping the active-prototype query to "
+                "and %d active prototypes are ready — cutting embedder/self-attention LR ×%.3g "
+                "(the aggregator, active-query builder, and predictor keep their LR), "
+                "ramping the active-prototype query to "
                 "weight %.2f over %d epochs; training continues until val plateaus again.",
                 epoch, metric, patience, n_active, factor, max_w, ramp,
             )
